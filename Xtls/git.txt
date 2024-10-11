@@ -1,0 +1,71 @@
+Local Repository: This is your project on your computer.
+Remote Repository: This is your project on GitHub's servers.
+Git Commands:
+
+fetch: Downloads info about changes in the remote repository without changing your local files.
+pull: Downloads changes from the remote and tries to merge them into your local repository.
+push: Uploads your local changes to the remote repository.
+
+
+
+Here's a safe workflow to use GitHub without risking your local work:
+
+Backup:
+Before doing anything, make a copy of your entire project folder. This ensures you always have a safe copy.
+Initialize Git (if not already done):
+
+git init
+
+------->Add your files:
+
+git add .
+
+------->Commit your files locally:
+
+git commit -m "Initial commit"
+
+------->Link to GitHub (only need to do this once):
+
+git remote add origin git@github.com:arcmoonstudios/xage.git
+
+------->Push your local work to GitHub:
+
+git push -u origin Dominion
+
+------->If this fails because the remote has changes:
+
+------->Create a new branch for safety:
+
+git checkout -b backup_branch
+
+------->Now try to get the remote changes:
+
+git fetch origin
+
+------->See what's different:
+
+git diff Dominion origin/Dominion
+
+------->If you're happy to include these changes:
+
+git merge origin/Dominion
+
+------->If there are conflicts, Git will tell you. You can then open the files and resolve conflicts manually.
+------->After resolving, add and commit:
+
+git add .
+git commit -m "Merged remote changes"
+
+------->Finally, push your updated branch:
+
+git push -u origin Dominion
+
+
+Remember:
+
+Always keep a backup of your local files.
+Commit often to save your work locally.
+Push to GitHub regularly to have an online backup.
+If you're ever unsure, ask for help before running commands.
+
+This approach ensures you're always working with a safety net. As you get more comfortable, you can streamline this process, but safety and understanding should always come first.

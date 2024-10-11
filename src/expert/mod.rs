@@ -1,6 +1,6 @@
 // src/expert/mod.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[EXPERT]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
 pub mod bevy_expert;
-pub mod gating;
 pub mod research_expert;
 pub mod rust_expert;
 pub mod router;
