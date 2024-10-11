@@ -1,0 +1,385 @@
+name: CI/CD Pipeline for Multiple Submodules
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  build_constants:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for constants
+        run: |
+          cd src/constants
+          docker build -t constants .
+
+      - name: Run Tests for constants
+        run: |
+          docker run constants cargo test --release
+
+  build_inference:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for inference
+        run: |
+          cd src/inference
+          docker build -t inference .
+
+      - name: Run Tests for inference
+        run: |
+          docker run inference cargo test --release
+
+  build_security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for security
+        run: |
+          cd src/security
+          docker build -t security .
+
+      - name: Run Tests for security
+        run: |
+          docker run security cargo test --release
+
+  build_data_processing:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for data_processing
+        run: |
+          cd src/data_processing
+          docker build -t data_processing .
+
+      - name: Run Tests for data_processing
+        run: |
+          docker run data_processing cargo test --release
+
+  build_expert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for expert
+        run: |
+          cd src/expert
+          docker build -t expert .
+
+      - name: Run Tests for expert
+        run: |
+          docker run expert cargo test --release
+
+  build_machines:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for machines
+        run: |
+          cd src/machines
+          docker build -t machines .
+
+      - name: Run Tests for machines
+        run: |
+          docker run machines cargo test --release
+
+  build_omnixtracker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for omnixtracker
+        run: |
+          cd src/omnixtracker
+          docker build -t omnixtracker .
+
+      - name: Run Tests for omnixtracker
+        run: |
+          docker run omnixtracker cargo test --release
+
+  build_aproar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for aproar
+        run: |
+          cd src/aproar
+          docker build -t aproar .
+
+      - name: Run Tests for aproar
+        run: |
+          docker run aproar cargo test --release
+
+  build_models:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for models
+        run: |
+          cd src/models
+          docker build -t models .
+
+      - name: Run Tests for models
+        run: |
+          docker run models cargo test --release
+
+  build_transformers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for transformers
+        run: |
+          cd src/transformers
+          docker build -t transformers .
+
+      - name: Run Tests for transformers
+        run: |
+          docker run transformers cargo test --release
+
+  build_utils:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for utils
+        run: |
+          cd src/utils
+          docker build -t utils .
+
+      - name: Run Tests for utils
+        run: |
+          docker run utils cargo test --release
+
+  build_model_interpretability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for model_interpretability
+        run: |
+          cd src/model_interpretability
+          docker build -t model_interpretability .
+
+      - name: Run Tests for model_interpretability
+        run: |
+          docker run model_interpretability cargo test --release
+
+  build_omnixelerator:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for omnixelerator
+        run: |
+          cd src/omnixelerator
+          docker build -t omnixelerator .
+
+      - name: Run Tests for omnixelerator
+        run: |
+          docker run omnixelerator cargo test --release
+
+  build_multi_modal:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for multi_modal
+        run: |
+          cd src/multi_modal
+          docker build -t multi_modal .
+
+      - name: Run Tests for multi_modal
+        run: |
+          docker run multi_modal cargo test --release
+
+  build_lsm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for lsm
+        run: |
+          cd src/lsm
+          docker build -t lsm .
+
+      - name: Run Tests for lsm
+        run: |
+          docker run lsm cargo test --release
+
+  deploy:
+    needs: [build_constants,build_inference,build_security,build_data_processing,build_expert,build_machines,build_omnixtracker,build_aproar,build_models,build_transformers,build_utils,build_model_interpretability,build_omnixelerator,build_multi_modal,build_lsm]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push Docker Images
+        run: |
+          docker tag constants my_dockerhub_username/constants:latest
+          docker push my_dockerhub_username/constants:latest
+          docker tag inference my_dockerhub_username/inference:latest
+          docker push my_dockerhub_username/inference:latest
+          docker tag security my_dockerhub_username/security:latest
+          docker push my_dockerhub_username/security:latest
+          docker tag data_processing my_dockerhub_username/data_processing:latest
+          docker push my_dockerhub_username/data_processing:latest
+          docker tag expert my_dockerhub_username/expert:latest
+          docker push my_dockerhub_username/expert:latest
+          docker tag machines my_dockerhub_username/machines:latest
+          docker push my_dockerhub_username/machines:latest
+          docker tag omnixtracker my_dockerhub_username/omnixtracker:latest
+          docker push my_dockerhub_username/omnixtracker:latest
+          docker tag aproar my_dockerhub_username/aproar:latest
+          docker push my_dockerhub_username/aproar:latest
+          docker tag models my_dockerhub_username/models:latest
+          docker push my_dockerhub_username/models:latest
+          docker tag transformers my_dockerhub_username/transformers:latest
+          docker push my_dockerhub_username/transformers:latest
+          docker tag utils my_dockerhub_username/utils:latest
+          docker push my_dockerhub_username/utils:latest
+          docker tag model_interpretability my_dockerhub_username/model_interpretability:latest
+          docker push my_dockerhub_username/model_interpretability:latest
+          docker tag omnixelerator my_dockerhub_username/omnixelerator:latest
+          docker push my_dockerhub_username/omnixelerator:latest
+          docker tag multi_modal my_dockerhub_username/multi_modal:latest
+          docker push my_dockerhub_username/multi_modal:latest
+          docker tag lsm my_dockerhub_username/lsm:latest
+          docker push my_dockerhub_username/lsm:latest

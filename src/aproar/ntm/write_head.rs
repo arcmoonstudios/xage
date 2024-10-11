@@ -1,6 +1,4 @@
 // src/aproar/ntm/write_head.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[NTM]Xyn>=====S===t===u===d===i===o===s======[R|$>
-// src/aproar/ntm/write_head.rs
-
 use super::*;
 
 pub struct WriteHead {

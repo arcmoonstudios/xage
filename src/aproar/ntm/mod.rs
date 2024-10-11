@@ -40,9 +40,9 @@ pub trait OmniXurge: Send + Sync {
 pub struct NTM {
     controller: NTMController,
     memory: Memory,
+    memory_size: usize,
     read_head: ReadHead,
     write_head: WriteHead,
-    memory_size: usize,
     memory_vector_size: usize,
     controller_output_size: usize,
 }
@@ -58,7 +58,7 @@ impl NTM {
     ) -> Result<Self, OmniXError> {
         log_info("Initializing NTM...");
         let controller_output_size = memory_vector_size * 2 + 6;
-        let controller = NTMController::new(input_size + memory_vector_size, output_size + controller_output_size, memory_vector_size, memory_size, config)?;
+        let controller = NTMController::new(input_size + memory_vector_size, output_size + controller_output_size, memory_vector_size, controller_size, memory_size, &config.metrics)?;
         let memory = Memory::new(memory_size, memory_vector_size);
         let read_head = ReadHead::new(memory_size, memory_vector_size);
         let write_head = WriteHead::new(memory_size, memory_vector_size, memory_vector_size);

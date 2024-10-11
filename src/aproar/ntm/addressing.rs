@@ -1,8 +1,9 @@
 // src/aproar/ntm/addressing.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[NTM]Xyn>=====S===t===u===d===i===o===s======[R|$>
-// src/ntm/addressing.rs
-use ndarray::{Array1, Array2};
+
+use ndarray::{Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use crate::omnixtracker::omnixerror::NTMError;
+use rayon::prelude::*;
 
 pub struct AddressingMechanism {
     memory_size: usize,
@@ -21,7 +22,13 @@ impl AddressingMechanism {
                 actual: vec![key.len()],
             });
         }
-        let similarities = memory.dot(key);
+        let similarities = memory.axis_iter(Axis(0))
+            .into_par_iter()
+            .map(|row| {
+                1.0 - cosine_similarity(key, &row.to_owned())
+            })
+            .collect::<Vec<f32>>();
+        let similarities = Array1::from_vec(similarities);
         let scaled_similarities = similarities * beta;
         self.softmax(&scaled_similarities)
     }
@@ -53,6 +60,17 @@ impl AddressingMechanism {
         Ok(w_shifted)
     }
 
+    pub fn sharpen(&self, w: &Array1<f32>, gamma: f32) -> Result<Array1<f32>, NTMError> {
+        if w.len() != self.memory_size {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![self.memory_size],
+                actual: vec![w.len()],
+            });
+        }
+        let w_pow = w.mapv(|x| x.powf(gamma));
+        let sum = w_pow.sum();
+        Ok(w_pow / sum)
+    }
 
     fn softmax(&self, x: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
         if x.is_empty() {
@@ -63,9 +81,15 @@ impl AddressingMechanism {
             return Err(NTMError::InvalidArgument("Input array contains NaN values in softmax function".to_string()));
         }
 
-        let max = x.max(&{unknown}).ok_or_else(|| NTMError::ComputationError)?; // Use ndarray::ArrayBase::max instead of core::cmp::Ord::max
+        let max = x.fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let exp = x.mapv(|a| (a - max).exp());
         let sum = exp.sum();
         Ok(exp / sum)
-    }
-}  
+    }}
+
+fn cosine_similarity(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
+    let dot_product = a.dot(b);
+    let norm_a = a.dot(a).sqrt();
+    let norm_b = b.dot(b).sqrt();
+    dot_product / (norm_a * norm_b)
+}

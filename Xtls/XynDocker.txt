@@ -1,0 +1,151 @@
+xynsrc
+
+#!/bin/bash
+
+# Base directory containing your Rust project
+BASE_DIR=$(pwd)
+
+# Loop through each directory in the src folder
+for dir in $(find src -mindepth 1 -maxdepth 1 -type d); do
+    # Extract submodule name
+    submodule=$(basename "$dir")
+
+    # Dockerfile path inside the submodule directory
+    dockerfile_path="$BASE_DIR/$dir/Dockerfile"
+
+    # Create Dockerfile if it doesn't exist
+    if [[ ! -f "$dockerfile_path" ]]; then
+        echo "Creating Dockerfile for $submodule..."
+
+        # Generate the Dockerfile content dynamically
+        cat > "$dockerfile_path" <<EOF
+# Base image with Rust and Cargo
+FROM rust:1.70 as builder
+
+# Set the working directory
+WORKDIR /usr/src/$submodule
+
+# Copy the Cargo.toml and src directory into the Docker container
+COPY Cargo.toml .
+COPY src/$submodule src/$submodule
+
+# Build the Rust project
+RUN cargo build --release
+
+# Use a minimal base image for running the built application
+FROM debian:buster-slim
+COPY --from=builder /usr/src/$submodule/target/release/$submodule /usr/local/bin/$submodule
+
+# Run the application
+CMD ["$submodule"]
+EOF
+
+        echo "Dockerfile for $submodule created."
+    else
+        echo "Dockerfile for $submodule already exists."
+    fi
+done
+
+xyncicd
+
+#!/bin/bash
+
+# Base directory of the project
+BASE_DIR=$(pwd)
+
+# Path for the GitHub Actions workflow
+WORKFLOW_PATH="$BASE_DIR/.github/workflows/ci.yml"
+
+# Create the workflows directory if it doesn't exist
+mkdir -p "$BASE_DIR/.github/workflows"
+
+# Start creating the CI/CD workflow
+echo "Creating CI workflow..."
+
+cat > "$WORKFLOW_PATH" <<EOF
+name: CI/CD Pipeline for Multiple Submodules
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+EOF
+
+# Loop through each subdirectory in src and create a job for each
+for dir in $(find src -mindepth 1 -maxdepth 1 -type d); do
+    submodule=$(basename "$dir")
+
+    # Append each submodule job to the workflow file
+    cat >> "$WORKFLOW_PATH" <<EOF
+
+  build_$submodule:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build Docker Image for $submodule
+        run: |
+          cd src/$submodule
+          docker build -t $submodule .
+
+      - name: Run Tests for $submodule
+        run: |
+          docker run $submodule cargo test --release
+EOF
+done
+
+# Add optional deployment steps
+cat >> "$WORKFLOW_PATH" <<EOF
+
+  deploy:
+    needs: [$(find src -mindepth 1 -maxdepth 1 -type d | sed 's|src/|build_|g' | paste -sd ',' -)]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: \${{ secrets.DOCKER_USERNAME }}
+          password: \${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push Docker Images
+        run: |
+EOF
+
+# Add a step to push each image
+for dir in $(find src -mindepth 1 -maxdepth 1 -type d); do
+    submodule=$(basename "$dir")
+    cat >> "$WORKFLOW_PATH" <<EOF
+          docker tag $submodule my_dockerhub_username/$submodule:latest
+          docker push my_dockerhub_username/$submodule:latest
+EOF
+done
+
+echo "CI workflow created at $WORKFLOW_PATH."
+
+xyndock
+
+#!/bin/bash
+
+# Run the Dockerfile generator
+echo "Generating Dockerfiles for each submodule..."
+bash xynsrc
+
+# Generate the CI workflow
+echo "Generating CI/CD workflow..."
+bash xyncicd
+
+echo "Automation complete! Dockerfiles and CI/CD workflow generated."

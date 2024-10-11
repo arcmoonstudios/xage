@@ -1,9 +1,10 @@
 // src/aproar/mod.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[APROAR]Xyn>=====S===t===u===d===i===o===s======[R|$>
-// src/aproar/mod.rs
 
 use crate::aproar::compression::{CompressionManager, CompressionStrategy, LZ4Compression, ZstdCompression};
 use crate::aproar::storage::{HDF5Storage, ParquetStorage, TileDBStorage, StorageBackend};
-use crate::aproar::retrieval::{RedisCache, RocksDBPersistence, RetrievalCache};
+use crate::aproar::retrieval::{RedisCache, RocksDBStorage, RocksDBPersistence, RetrievalCache};
+use crate::aproar::memory::{ContextWindowManager, MemoryConsolidator, ContextChunk};
+use crate::aproar::ntm::{NTM, NTMConfig};
 use crate::omnixtracker::{OmniXMetry, OmniXError};
 use crate::constants::*;
 use uuid::Uuid;
@@ -14,12 +15,11 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Instant;
 use parking_lot::RwLock;
-use rand::seq::SliceRandom;
 use async_trait::async_trait;
 use futures::future::join_all;
-use std::collections::HashMap;
 use tokio::time::{Duration, interval};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use ndarray::Array1;
 
 mod compression;
 mod memory;
@@ -27,7 +27,6 @@ mod ntm;
 mod retrieval;
 mod storage;
 
-// Define trait for OmniXurge with async capabilities
 #[async_trait]
 pub trait OmniXurge: Send + Sync {
     async fn parallelize_task<T: Send + Sync + 'static>(&self, task: T) -> Result<Uuid, OmniXError>;
@@ -61,7 +60,6 @@ pub struct AproarManager {
 
 impl AproarManager {
     pub fn new(metrics: OmniXMetry) -> Result<Self, OmniXError> {
-        // Initialize NTM
         let ntm_config = NTMConfig {
             input_size: NTM_INPUT_SIZE,
             output_size: NTM_OUTPUT_SIZE,
@@ -79,24 +77,19 @@ impl AproarManager {
             &ntm_config,
         ).map_err(|e| OmniXError::InitializationError(format!("Failed to initialize NTM: {}", e)))?;
 
-        // Initialize context window manager and memory consolidator
         let context_window_manager = Arc::new(ContextWindowManager::new(CONTEXT_WINDOW_SIZE, metrics.clone()));
-        let memory_consolidator = Arc::new(MemoryConsolidator::new(metrics.clone()));
-
-        // Initialize compression manager
+        let memory_consolidator = Arc::new(MemoryConsolidator::new(strategy, metrics.clone()));
         let compression_manager = CompressionManager::new(metrics.clone());
 
-        // Initialize storage backends
         let storage_backends: Vec<Arc<dyn StorageBackend>> = vec![
             Arc::new(HDF5Storage::new(PathBuf::from("data.h5"), metrics.clone())),
             Arc::new(ParquetStorage::new(PathBuf::from("data.parquet"))),
             Arc::new(TileDBStorage::new("tiledb_array")),
         ];
 
-        // Initialize retrieval caches
         let retrieval_caches: Vec<Arc<dyn RetrievalCache>> = vec![
             Arc::new(RedisCache::new("redis://127.0.0.1/", metrics.clone()).map_err(OmniXError::from)?),
-            Arc::new(RocksDBPersistence::new(PathBuf::from("rocksdb_data"), metrics.clone()).map_err(OmniXError::from)?),
+            Arc::new(RocksDBStorage::new(&Path::from("rocksdb_data"), metrics.clone())?),
         ];
 
         let manager = AproarManager {
@@ -154,7 +147,7 @@ impl AproarManager {
 
     pub async fn reset_ntm(&self) -> Result<(), OmniXError> {
         let mut ntm = self.ntm.write();
-        ntm.reset();
+        ntm.reset().await;
         Ok(())
     }
 

@@ -63,10 +63,8 @@ pub use data_processing::{
 
 pub use expert::{
     BevyExpert,
-    ExpertGating,
     ResearchExpert,
     RustExpert,
-    ExpertRouter,
     SolanaExpert,
 };
 
