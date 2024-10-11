@@ -1,0 +1,121 @@
+-- Xdocs/Layout.txt ~=#######D]======A===r===c====M===o===o===n=====<Lord[XDOCS]Xyn>=====S===t===u===d===i===o===s======[R|$>
+xage/
+├── src/
+│   ├── aproar/                                     # Proprietary Storage and Memory System Solution by Lord Xyn
+│   │   ├── compression/                            # Data compression functionalities
+│   │   │   ├── lz4_compression.rs                  # LZ4 compression implementation
+│   │   │   ├── zstd_compression.rs                 # Zstandard (ZSTD) compression implementation
+│   │   │   └── mod.rs                              # Compression module definitions and manager
+│   │   ├── storage/                                # Data storage backends
+│   │   │   ├── hdf5_storage.rs                     # HDF5 file storage implementation
+│   │   │   ├── parquet_storage.rs                  # Parquet file storage implementation
+│   │   │   ├── tiledb_storage.rs                   # TileDB array storage implementation
+│   │   │   └── mod.rs                              # Module definitions for storage
+│   │   ├── retrieval/                              # Data retrieval functionalities
+│   │   │   ├── redis_cache.rs                      # Redis-based caching and retrieval
+│   │   │   ├── rocksdb_persistence.rs              # RocksDB-based persistent storage and retrieval
+│   │   │   └── mod.rs                              # Module definitions for retrieval
+│   │   └── aproar_manager.rs                       # Aproar module definitions and core entry.
+│   ├── constants/                                  # Reusable constants for configuration
+│   │   └── mod.rs                                  # Project configuration constants
+│   ├── data_processing/                            # Data tasks: tokenization and dataset preparation
+│   │   ├── dataset.rs                              # Dataset creation for training and evaluation
+│   │   ├── tokenizer.rs                            # Tokenization logic for text and code
+│   │   └── mod.rs                                  # Data processing module
+│   ├── expert/                                     # Expert systems for AI functionalities and integrations
+│   │   ├── bevy_expert.rs                          # Integrates Bevy for game development
+│   │   ├── gating.rs                               # Expert gating mechanism for task distribution
+│   │   ├── research_expert.rs                      # Integrates arXiv API for research paper management
+│   │   ├── rust_expert.rs                          # Generates advanced Rust modules
+│   │   ├── router.rs                               # Routes tasks to expert modules
+│   │   ├── solana_expert.rs                        # Generates Solana Blockchain components
+│   │   └── mod.rs                                  # Module index for expert systems
+│   ├── inference/                                  # Model inference processes bridging Rust and Python
+│   │   └── cross_fusion_inference.py               # Python script for model loading and inference
+│   ├── lsm/                                        # Liquid State Machine modules for reservoir computing
+│   │   ├── neuron.rs                               # Neuron components for the LSM
+│   │   ├── readout.rs                              # Readout mechanism for neuron states
+│   │   ├── reservoir.rs                            # Reservoir logic for state propagation
+│   │   ├── synapse.rs                              # Synaptic connections between neurons
+│   │   ├── encoder.rs                              # Encoder module for reservoir state
+│   │   └── mod.rs                                  # LSM components module
+│   ├── model_interpretability/                     # Tools to interpret and understand model decisions
+│   │   ├── decision_visualization.rs               # Visualizes model decision-making
+│   │   ├── feature_importance.rs                   # Computes feature importance
+│   │   ├── lime.rs                                 # Implements LIME for local interpretation
+│   │   ├── shap.rs                                 # Implements SHAP values for explanations
+│   │   └── mod.rs                                  # Interpretability functionalities module
+│   ├── machines/                                   # Machine models: LSM and NTM
+│   │   ├── liquid_state_machine.rs                 # Liquid State Machine models
+│   │   ├── neural_turing_machine.rs                # Neural Turing Machine model
+│   │   └── mod.rs                                  # Machine-based models module
+│   ├── models/                                     # Machine learning models like GPT-Neo and RustBERT
+│   │   ├── gpt_neo_model.rs                        # GPT-Neo model implementation
+│   │   ├── rustbert_model.rs                       # RustBERT training implementation
+│   │   └── mod.rs                                  # Model architectures module
+│   ├── multi_modal/                                # Multi-modal data processing: text, audio, images
+│   │   ├── audio_processor.rs                      # Audio data preprocessing and feature extraction
+│   │   ├── fusion.rs                               # Fusion strategies for multi-modal data
+│   │   ├── image_processor.rs                      # Image preprocessing and feature extraction
+│   │   ├── text_processor.rs                       # Text data preprocessing
+│   │   └── mod.rs                                  # Multi-modal processing module
+│   ├── ntm/                                        # Neural Turing Machine implementation
+│   │   ├── addressing.rs                           # Addressing mechanisms for external memory
+│   │   ├── controller.rs                           # Controls data flow within the NTM
+│   │   ├── memory.rs                               # Memory operations for NTM
+│   │   ├── read_head.rs                            # Read head functionality for NTM
+│   │   ├── write_head.rs                           # Write head functionality for NTM
+│   │   └── mod.rs                                  # NTM components module
+│   ├── omnixelerator/                              # Parallel execution and task management
+│   │   ├── execution.rs                            # Execution context and task execution
+│   │   ├── mod.rs                                  # Module definitions for omnixelerator
+│   │   ├── parallexelerator.rs                     # Parallel task execution management
+│   │   ├── persistence.rs                          # Task state persistence
+│   │   ├── resource_monitor.rs                     # System resource monitoring
+│   │   └── task_manager.rs                         # Task creation and management
+│   ├── omnixtracker/                               # Metrics tracking and error management
+│   │   ├── omnixerror.rs                           # Error tracking during model operations
+│   │   ├── omnixmetry.rs                           # Custom metrics collection and evaluation
+│   │   └── mod.rs                                  # Omnix tracker module
+│   ├── security/                                   # Security functionalities: AES encryption and WebAuthn
+│   │   ├── aes_encryption.rs                       # AES-256 encryption and decryption
+│   │   ├── webauthn_authentication.rs              # WebAuthn passkey registration and authentication
+│   │   └── mod.rs                                  # Security functionalities module
+│   ├── transformers/                               # Transformer components: encoder, decoder, attention
+│   │   ├── attention.rs                            # Attention mechanisms
+│   │   ├── decoder.rs                              # Transformer decoder
+│   │   ├── encoder.rs                              # Transformer encoder
+│   │   ├── feed_forward.rs                         # Feed-forward network in Transformers
+│   │   ├── layer_norm.rs                           # Layer normalization for Transformers
+│   │   └── mod.rs                                  # Transformer architecture module
+│   ├── utils/                                      # Utility modules and helper functions
+│   │   ├── data_pipeline.rs                        # Data pipeline management for preprocessing and training
+│   │   ├── lxsl.rs                                 # Lord Xyn's Signature Line for data handling
+│   │   └── mod.rs                                  # Utility functions module
+│   ├── aproar_data_manager.rs                      # Manages adaptive aproar storage decisions
+│   ├── lib.rs                                      # Main library file aggregating functionality
+│   └── main.rs                                     # Main executable entry point
+├── tests/                                          # Test modules for verifying functionality
+│   ├── tokenizer_tests.rs                          # Tokenizer tests
+│   ├── model_tests.rs                              # Model implementation tests
+│   ├── data_loader_tests.rs                        # Data loader tests
+│   ├── multi_modal_tests.rs                        # Multi-modal processing tests
+│   ├── ntm_tests.rs                                # NTM component tests
+│   ├── plsm_tests.rs                               # Probabilistic Liquid State Machine tests
+│   ├── compression_tests.rs                        # Data compression tests
+│   ├── lsm_tests.rs                                # Liquid State Machine tests
+│   ├── transformers_tests.rs                       # Transformer model tests
+│   └── model_interpretability_tests.rs             # Interpretability component tests
+├── scripts/                                        # Scripts for data collection, training, and evaluation
+│   ├── data_collection.rs                          # Automates collection of Rust code files
+│   ├── data_preprocessing.rs                       # Tokenizing and preprocessing data
+│   ├── training.rs                                 # Model training script
+│   ├── compression_benchmark.rs                    # Compression schemes benchmarking
+│   └── evaluation.rs                               # Model performance evaluation
+├── docs/                                           # User and developer documentation
+├── Xdocs/                                          # Additional documentation resources
+├── Xtls/                                           # Documented instructions and commands
+├── .gitignore                                      # Git ignore file
+├── Cargo.toml                                      # Rust project dependencies and metadata
+├── LICENSE                                         # Project license information
+└── README.md                                       # Project setup and usage instructions

@@ -1,0 +1,10 @@
+# config/prometheus.yml ~=#######D]======A===r===c====M===o===o===n=====<Lord[PROMETHEUS]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'xage'
+    static_configs:
+      - targets: ['localhost:9001']

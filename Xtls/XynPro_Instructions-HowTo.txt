@@ -1,0 +1,32 @@
+-- Xtls/XynPro_Instructions-HowTo.txt ~=#######D]======A===r===c====M===o===o===n=====<Lord[XTLS]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+## XynPro Instructions:
+
+# Update your src/main.rs file with this new code.
+Rebuild your project:
+
+cargo build --release
+
+# Copy the new binary to your ~/.cargo/bin directory:
+
+cp ./target/release/xynpro ~/.cargo/bin/xynpro
+
+# Make sure the binary is executable:
+
+chmod +x ~/.cargo/bin/xynpro
+
+# Test the new functionality:
+a. Check the version:
+
+xynpro --version
+
+# This should output: "xynpro version 0.0.7"
+b. Create a new project:
+
+xynpro my_new_project
+
+This should create a new project structure in a directory called "my_new_project"
+If you encounter any issues, check the error messages and ensure all necessary dependencies are installed.
+If everything works as expected, you can now use this updated version of xynpro to create projects and check its version.
+
+# Remember, if you need to make any further changes, you'll need to repeat steps 2-4 to rebuild and update the executable.

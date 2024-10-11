@@ -1,0 +1,2184 @@
+-- Xdocs/CurrentState_APROAR.txt ~=#######D]======A===r===c====M===o===o===n=====<Lord[XDOCS]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+
+--- src/aproar/compression/lz4_compression.rs ---
+
+
+use lz4::{block::compress, block::decompress, block::CompressionMode};
+use super::{CompressionStrategy, OmniXError};
+use anyhow::{Context, Result};
+use std::io::{Read, Write};
+
+use std::fs::File;
+
+
+pub struct LZ4Compression;
+
+impl CompressionStrategy for LZ4Compression {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        compress(data, Some(CompressionMode::HIGHCOMPRESSION(9)), false)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "LZ4 compression".to_string(),
+                details: e.to_string(),
+            })
+    }
+
+    fn decompress(&self, compressed_data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        decompress(compressed_data, None)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "LZ4 decompression".to_string(),
+                details: e.to_string(),
+            })
+    }
+}
+
+const BUFFER_SIZE: usize = 8192;
+
+/// Compresses data using LZ4 and writes to a file
+pub fn compress_data_with_lz4(input_path: &str, output_path: &str) -> Result<()> {
+    let mut input_file = File::open(input_path)
+        .with_context(|| format!("Failed to open input file: {}", input_path))?;
+    let mut output_file = File::create(output_path)
+        .with_context(|| format!("Failed to create output file: {}", output_path))?;
+
+    let mut buffer = Vec::with_capacity(BUFFER_SIZE);
+    let lz4_compressor = LZ4Compression;
+
+    loop {
+        buffer.clear();
+        let bytes_read = input_file
+            .by_ref()
+            .take(BUFFER_SIZE as u64)
+            .read_to_end(&mut buffer)
+            .with_context(|| "Failed to read input file")?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        let compressed_chunk = lz4_compressor.compress(&buffer)
+            .with_context(|| "Failed to compress data chunk with LZ4")?;
+
+        output_file
+            .write_all(&compressed_chunk)
+            .with_context(|| "Failed to write compressed data to file")?;
+    }
+
+    println!("Data compressed with LZ4 and written to {}", output_path);
+    Ok(())
+}
+
+/// Decompresses LZ4 compressed data from a file
+pub fn decompress_data_with_lz4(input_path: &str, output_path: &str) -> Result<()> {
+    let mut input_file = File::open(input_path)
+        .with_context(|| format!("Failed to open input file: {}", input_path))?;
+    let mut output_file = File::create(output_path)
+        .with_context(|| format!("Failed to create output file: {}", output_path))?;
+
+    let mut compressed_data = Vec::new();
+    input_file
+        .read_to_end(&mut compressed_data)
+        .with_context(|| "Failed to read compressed file")?;
+
+    let lz4_decompressor = LZ4Compression;
+    let decompressed_data = lz4_decompressor.decompress(&compressed_data)
+        .with_context(|| "Failed to decompress data with LZ4")?;
+
+    output_file
+        .write_all(&decompressed_data)
+        .with_context(|| "Failed to write decompressed data to file")?;
+
+    println!("Data decompressed with LZ4 and written to {}", output_path);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_lz4_compression_decompression() -> Result<()> {
+        let dir = tempdir()?;
+        let input_path = dir.path().join("input.txt");
+        let compressed_path = dir.path().join("compressed.lz4");
+        let decompressed_path = dir.path().join("decompressed.txt");
+
+        let test_data = b"Hello, world! This is a test of LZ4 compression.";
+        std::fs::write(&input_path, test_data)?;
+
+        compress_data_with_lz4(
+            input_path.to_str().unwrap(),
+            compressed_path.to_str().unwrap(),
+        )?;
+        decompress_data_with_lz4(
+            compressed_path.to_str().unwrap(),
+            decompressed_path.to_str().unwrap(),
+        )?;
+
+        let decompressed_content = std::fs::read(decompressed_path)?;
+        assert_eq!(decompressed_content, test_data);
+
+        Ok(())
+    }
+}
+
+
+
+
+--- src/aproar/compression/mod.rs ---
+
+// src/aproar/compression/mod.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[COMPRESSION]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use crate::omnixtracker::{OmniXMetry, OmniXError};
+use crate::constants::*;
+
+mod lz4_compression;
+mod zstd_compression;
+
+pub use lz4_compression::{compress_data_with_lz4, decompress_data_with_lz4};
+pub use zstd_compression::{compress_data_with_zstd, decompress_data_with_zstd};
+
+pub trait CompressionStrategy {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, OmniXError>;
+    fn decompress(&self, compressed_data: &[u8]) -> Result<Vec<u8>, OmniXError>;
+}
+
+pub struct CompressionManager {
+    metrics: OmniXMetry,
+}
+
+impl CompressionManager {
+    pub fn new(metrics: OmniXMetry) -> Self {
+        Self { metrics }
+    }
+
+    pub fn compress(&self, strategy: &dyn CompressionStrategy, data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        let start_time = std::time::Instant::now();
+        let result = strategy.compress(data);
+        let duration = start_time.elapsed();
+
+        self.metrics.record_histogram("compression.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("compression.total".to_string(), 1);
+
+        if result.is_ok() {
+            self.metrics.increment_counter("compression.success".to_string(), 1);
+        } else {
+            self.metrics.increment_counter("compression.failure".to_string(), 1);
+        }
+
+        result
+    }
+
+    pub fn decompress(&self, strategy: &dyn CompressionStrategy, compressed_data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        let start_time = std::time::Instant::now();
+        let result = strategy.decompress(compressed_data);
+        let duration = start_time.elapsed();
+
+        self.metrics.record_histogram("decompression.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("decompression.total".to_string(), 1);
+
+        if result.is_ok() {
+            self.metrics.increment_counter("decompression.success".to_string(), 1);
+        } else {
+            self.metrics.increment_counter("decompression.failure".to_string(), 1);
+        }
+
+        result
+    }
+}
+
+
+
+
+--- src/aproar/compression/zstd_compression.rs ---
+
+// src/aproar/compression/zstd_compression.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[COMPRESSION]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use super::{CompressionStrategy, OmniXError};
+use crate::constants::ZSTD_COMPRESSION_LEVEL;
+use zstd::stream::{encode_all, decode_all};
+use anyhow::{Context, Result};
+use std::io::{Read, Write};
+use std::fs::File;
+
+pub struct ZstdCompression;
+
+impl CompressionStrategy for ZstdCompression {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        encode_all(data, ZSTD_COMPRESSION_LEVEL)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Zstd compression".to_string(),
+                details: e.to_string(),
+            })
+    }
+
+    fn decompress(&self, compressed_data: &[u8]) -> Result<Vec<u8>, OmniXError> {
+        decode_all(compressed_data)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Zstd decompression".to_string(),
+                details: e.to_string(),
+            })
+    }
+}
+
+/// Compresses data using Zstandard (Zstd) and writes to a file
+pub fn compress_data_with_zstd(input_path: &str, output_path: &str) -> Result<()> {
+    let mut input_file = File::open(input_path)
+        .with_context(|| format!("Failed to open input file: {}", input_path))?;
+    let mut buffer = Vec::new();
+    input_file
+        .read_to_end(&mut buffer)
+        .with_context(|| format!("Failed to read input file: {}", input_path))?;
+
+    let zstd_compressor = ZstdCompression;
+    let compressed_data = zstd_compressor.compress(&buffer)
+        .with_context(|| "Failed to compress data with Zstd")?;
+
+    let mut output_file = File::create(output_path)
+        .with_context(|| format!("Failed to create output file: {}", output_path))?;
+    output_file
+        .write_all(&compressed_data)
+        .with_context(|| "Failed to write compressed data to file")?;
+
+    println!("Data compressed with Zstd and written to {}", output_path);
+    Ok(())
+}
+
+/// Decompresses Zstd compressed data from a file
+pub fn decompress_data_with_zstd(input_path: &str, output_path: &str) -> Result<()> {
+    let mut input_file = File::open(input_path)
+        .with_context(|| format!("Failed to open input file: {}", input_path))?;
+    let mut compressed_data = Vec::new();
+    input_file
+        .read_to_end(&mut compressed_data)
+        .with_context(|| format!("Failed to read compressed file: {}", input_path))?;
+
+    let zstd_decompressor = ZstdCompression;
+    let decompressed_data = zstd_decompressor.decompress(&compressed_data)
+        .with_context(|| "Failed to decompress data with Zstd")?;
+
+    let mut output_file = File::create(output_path)
+        .with_context(|| format!("Failed to create output file: {}", output_path))?;
+    output_file
+        .write_all(&decompressed_data)
+        .with_context(|| "Failed to write decompressed data to file")?;
+
+    println!("Data decompressed with Zstd and written to {}", output_path);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_zstd_compression_decompression() -> Result<()> {
+        let dir = tempdir()?;
+        let input_path = dir.path().join("input.txt");
+        let compressed_path = dir.path().join("compressed.zst");
+        let decompressed_path = dir.path().join("decompressed.txt");
+
+        let test_data = b"Hello, world! This is a test of Zstd compression.";
+        std::fs::write(&input_path, test_data)?;
+
+        compress_data_with_zstd(
+            input_path.to_str().unwrap(),
+            compressed_path.to_str().unwrap(),
+        )?;
+        decompress_data_with_zstd(
+            compressed_path.to_str().unwrap(),
+            decompressed_path.to_str().unwrap(),
+        )?;
+
+        let decompressed_content = std::fs::read(decompressed_path)?;
+        assert_eq!(decompressed_content, test_data);
+
+        Ok(())
+    }
+}
+
+
+
+
+--- src/aproar/memory/context_window.rs ---
+
+// src/aproar/memory/context_window.rs
+
+use crate::omnixtracker::{OmniXMetry, OmniXError};
+use crate::constants::*;
+use tokio::sync::RwLock;
+use std::sync::Arc;
+use chrono::{DateTime, Utc};
+use serde::{Serialize, Deserialize};
+use uuid::Uuid;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ContextChunk {
+    pub id: Uuid,
+    pub content: Vec<u8>,
+    pub timestamp: DateTime<Utc>,
+    pub relevance_score: f64,
+}
+
+pub struct ContextWindowManager {
+    chunks: RwLock<Vec<ContextChunk>>,
+    max_window_size: usize,
+    metrics: OmniXMetry,
+}
+
+impl ContextWindowManager {
+    pub fn new(max_window_size: usize, metrics: OmniXMetry) -> Self {
+        Self {
+            chunks: RwLock::new(Vec::with_capacity(max_window_size)),
+            max_window_size,
+            metrics,
+        }
+    }
+
+    pub async fn add_chunk(&self, content: Vec<u8>) -> Result<(), OmniXError> {
+        let mut chunks = self.chunks.write().await;
+        if chunks.len() >= self.max_window_size {
+            chunks.remove(0);
+        }
+        chunks.push(ContextChunk {
+            id: Uuid::new_v4(),
+            content,
+            timestamp: Utc::now(),
+            relevance_score: 1.0,
+        });
+        self.metrics.increment_counter("context_window.chunks_added".to_string(), 1);
+        Ok(())
+    }
+
+    pub async fn get_relevant_chunks(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>, OmniXError> {
+        let chunks = self.chunks.read().await;
+        let mut relevant_chunks: Vec<ContextChunk> = chunks.iter()
+            .filter(|chunk| self.is_relevant(chunk, query))
+            .take(limit)
+            .cloned()
+            .collect();
+        relevant_chunks.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap());
+        self.metrics.increment_counter("context_window.chunks_retrieved".to_string(), relevant_chunks.len() as u64);
+        Ok(relevant_chunks)
+    }
+
+    pub async fn get_all_chunks(&self) -> Result<Vec<ContextChunk>, OmniXError> {
+        let chunks = self.chunks.read().await;
+        Ok(chunks.clone())
+    }
+
+    fn is_relevant(&self, chunk: &ContextChunk, query: &str) -> bool {
+        let query_bytes = query.as_bytes();
+        chunk.content.windows(query_bytes.len()).any(|window| window == query_bytes)
+    }
+
+    pub async fn update_relevance(&self, chunk_id: Uuid, new_score: f64) -> Result<(), OmniXError> {
+        let mut chunks = self.chunks.write().await;
+        if let Some(chunk) = chunks.iter_mut().find(|c| c.id == chunk_id) {
+            chunk.relevance_score = new_score;
+            self.metrics.increment_counter("context_window.relevance_updates".to_string(), 1);
+            Ok(())
+        } else {
+            Err(OmniXError::NotFound("Chunk not found".to_string()))
+        }
+    }
+}
+
+
+
+
+--- src/aproar/memory/memory_consolidation.rs ---
+
+// src/aproar/memory/memory_consolidation.rs
+
+use crate::omnixtracker::{OmniXMetry, OmniXError};
+use crate::aproar::memory::context_window::ContextChunk;
+use crate::constants::*;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+pub trait ConsolidationStrategy: Send + Sync {
+    fn consolidate(&self, chunks: &[ContextChunk]) -> Vec<ContextChunk>;
+}
+
+pub struct SimpleAveragingStrategy;
+
+impl ConsolidationStrategy for SimpleAveragingStrategy {
+    fn consolidate(&self, chunks: &[ContextChunk]) -> Vec<ContextChunk> {
+        if chunks.is_empty() {
+            return Vec::new();
+        }
+
+        let mut consolidated_content = Vec::new();
+        let chunk_size = chunks[0].content.len();
+
+        for i in 0..chunk_size {
+            let sum: u32 = chunks.iter().map(|chunk| chunk.content[i] as u32).sum();
+            let average = (sum / chunks.len() as u32) as u8;
+            consolidated_content.push(average);
+        }
+
+        vec![ContextChunk {
+            id: uuid::Uuid::new_v4(),
+            content: consolidated_content,
+            timestamp: chrono::Utc::now(),
+            relevance_score: chunks.iter().map(|chunk| chunk.relevance_score).sum::<f64>() / chunks.len() as f64,
+        }]
+    }
+}
+
+pub struct MemoryConsolidator {
+    strategy: Mutex<Box<dyn ConsolidationStrategy>>,
+    metrics: OmniXMetry,
+}
+
+impl MemoryConsolidator {
+    pub fn new(strategy: Box<dyn ConsolidationStrategy>, metrics: OmniXMetry) -> Self {
+        Self {
+            strategy: Mutex::new(strategy),
+            metrics,
+        }
+    }
+
+    pub async fn consolidate(&self, chunks: &[ContextChunk]) -> Result<Vec<ContextChunk>, OmniXError> {
+        let start_time = std::time::Instant::now();
+        let strategy = self.strategy.lock().await;
+        let consolidated = strategy.consolidate(chunks);
+        let duration = start_time.elapsed();
+        self.metrics.record_histogram("memory_consolidation.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("memory_consolidation.chunks_consolidated".to_string(), chunks.len() as u64);
+        Ok(consolidated)
+    }
+
+    pub async fn set_strategy(&self, new_strategy: Box<dyn ConsolidationStrategy>) {
+        let mut strategy = self.strategy.lock().await;
+        *strategy = new_strategy;
+    }
+}
+
+
+
+
+--- src/aproar/memory/mod.rs ---
+
+// src/aproar/memory/mod.rs
+
+mod context_window;
+mod memory_consolidation;
+
+pub use context_window::{ContextWindowManager, ContextChunk};
+pub use memory_consolidation::{MemoryConsolidator, ConsolidationStrategy, SimpleAveragingStrategy};
+
+use crate::omnixtracker::{OmniXMetry, OmniXError};
+use crate::constants::*;
+use std::sync::Arc;
+
+pub struct MemoryManager {
+    context_window: Arc<ContextWindowManager>,
+    consolidator: Arc<MemoryConsolidator>,
+    metrics: OmniXMetry,
+}
+
+impl MemoryManager {
+    pub fn new(metrics: OmniXMetry) -> Self {
+        let context_window = Arc::new(ContextWindowManager::new(CONTEXT_WINDOW_SIZE, metrics.clone()));
+        let consolidator = Arc::new(MemoryConsolidator::new(
+            Box::new(SimpleAveragingStrategy),
+            metrics.clone(),
+        ));
+
+        Self {
+            context_window,
+            consolidator,
+            metrics,
+        }
+    }
+
+    pub async fn add_to_context(&self, content: Vec<u8>) -> Result<(), OmniXError> {
+        self.context_window.add_chunk(content).await
+    }
+
+    pub async fn retrieve_context(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>, OmniXError> {
+        self.context_window.get_relevant_chunks(query, limit).await
+    }
+
+    pub async fn consolidate_memory(&self) -> Result<(), OmniXError> {
+        let chunks = self.context_window.get_all_chunks().await?;
+        let consolidated = self.consolidator.consolidate(&chunks).await?;
+        for chunk in consolidated {
+            self.context_window.add_chunk(chunk.content).await?;
+        }
+        Ok(())
+    }
+}
+
+
+
+
+--- src/aproar/mod.rs ---
+
+// src/aproar/mod.rs
+
+use crate::aproar::compression::{CompressionManager, CompressionStrategy, LZ4Compression, ZstdCompression};
+use crate::aproar::storage::{HDF5Storage, ParquetStorage, TileDBStorage, StorageBackend};
+use crate::aproar::retrieval::{RedisCache, RocksDBPersistence, RetrievalCache};
+use crate::omnixtracker::{OmniXMetry, OmniXError};
+use crate::constants::*;
+use uuid::Uuid;
+use tokio::task;
+use std::sync::Arc;
+use dashmap::DashMap;
+use rayon::prelude::*;
+use std::path::PathBuf;
+use std::time::Instant;
+use parking_lot::RwLock;
+use rand::seq::SliceRandom;
+use async_trait::async_trait;
+use futures::future::join_all;
+use std::collections::HashMap;
+use tokio::time::{Duration, interval};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+mod compression;
+mod memory;
+mod ntm;
+mod retrieval;
+mod storage;
+
+// Define trait for OmniXurge with async capabilities
+#[async_trait]
+pub trait OmniXurge: Send + Sync {
+    async fn parallelize_task<T: Send + Sync + 'static>(&self, task: T) -> Result<Uuid, OmniXError>;
+    async fn get_parallelized_task_status(&self, task_id: Uuid) -> Option<TaskMetadata>;
+    async fn get_resource_utilization(&self) -> Result<ResourceMonitor, OmniXError>;
+    async fn tune_hyperparameters<H: Hyperparameters + Send + Sync>(&self, config: TunerConfig<H>) -> Result<H, OmniXError>;
+    async fn accelerate(&self) -> Result<(), OmniXError>;
+    async fn decelerate(&self) -> Result<(), OmniXError>;
+    async fn collect_metrics(&self) -> Result<Metrics, OmniXError>;
+    async fn shutdown(&self) -> Result<(), OmniXError>;
+    async fn submit_task_with_progress<T, F>(&self, task: T, progress_callback: F) -> Result<Uuid, OmniXError>
+    where
+        T: TaskMaster + Send + 'static,
+        F: Fn(TaskProgress) + Send + Sync + 'static;
+    async fn recover_and_resume_tasks(&self) -> Result<(), OmniXError>;
+}
+
+pub struct AproarManager {
+    ntm: Arc<RwLock<NTM>>,
+    context_window_manager: Arc<ContextWindowManager>,
+    memory_consolidator: Arc<MemoryConsolidator>,
+    compression_manager: CompressionManager,
+    storage_backends: Vec<Arc<dyn StorageBackend>>,
+    retrieval_caches: Vec<Arc<dyn RetrievalCache>>,
+    metrics: OmniXMetry,
+    tasks: Arc<DashMap<Uuid, TaskMetadata>>,
+    resource_monitor: Arc<RwLock<ResourceMonitor>>,
+    max_concurrent_tasks: usize,
+    current_task_count: Arc<AtomicUsize>,
+}
+
+impl AproarManager {
+    pub fn new(metrics: OmniXMetry) -> Result<Self, OmniXError> {
+        // Initialize NTM
+        let ntm_config = NTMConfig {
+            input_size: NTM_INPUT_SIZE,
+            output_size: NTM_OUTPUT_SIZE,
+            memory_size: NTM_MEMORY_SIZE,
+            memory_vector_size: NTM_MEMORY_VECTOR_SIZE,
+            controller_size: NTM_CONTROLLER_SIZE,
+        };
+
+        let ntm = NTM::new(
+            NTM_INPUT_SIZE,
+            NTM_OUTPUT_SIZE,
+            NTM_MEMORY_SIZE,
+            NTM_MEMORY_VECTOR_SIZE,
+            NTM_CONTROLLER_SIZE,
+            &ntm_config,
+        ).map_err(|e| OmniXError::InitializationError(format!("Failed to initialize NTM: {}", e)))?;
+
+        // Initialize context window manager and memory consolidator
+        let context_window_manager = Arc::new(ContextWindowManager::new(CONTEXT_WINDOW_SIZE, metrics.clone()));
+        let memory_consolidator = Arc::new(MemoryConsolidator::new(metrics.clone()));
+
+        // Initialize compression manager
+        let compression_manager = CompressionManager::new(metrics.clone());
+
+        // Initialize storage backends
+        let storage_backends: Vec<Arc<dyn StorageBackend>> = vec![
+            Arc::new(HDF5Storage::new(PathBuf::from("data.h5"), metrics.clone())),
+            Arc::new(ParquetStorage::new(PathBuf::from("data.parquet"))),
+            Arc::new(TileDBStorage::new("tiledb_array")),
+        ];
+
+        // Initialize retrieval caches
+        let retrieval_caches: Vec<Arc<dyn RetrievalCache>> = vec![
+            Arc::new(RedisCache::new("redis://127.0.0.1/", metrics.clone()).map_err(OmniXError::from)?),
+            Arc::new(RocksDBPersistence::new(PathBuf::from("rocksdb_data"), metrics.clone()).map_err(OmniXError::from)?),
+        ];
+
+        let manager = AproarManager {
+            ntm: Arc::new(RwLock::new(ntm)),
+            context_window_manager,
+            memory_consolidator,
+            compression_manager,
+            storage_backends,
+            retrieval_caches,
+            metrics: metrics.clone(),
+            tasks: Arc::new(DashMap::new()),
+            resource_monitor: Arc::new(RwLock::new(ResourceMonitor::default())),
+            max_concurrent_tasks: MAX_CONCURRENT_TASKS,
+            current_task_count: Arc::new(AtomicUsize::new(0)),
+        };
+
+        manager.start_resource_monitoring();
+        manager.start_metrics_collection();
+        Ok(manager)
+    }
+
+    fn start_resource_monitoring(&self) {
+        let resource_monitor = self.resource_monitor.clone();
+        tokio::spawn(async move {
+            let mut interval = interval(Duration::from_millis(RESOURCE_MONITOR_INTERVAL_MS));
+            loop {
+                interval.tick().await;
+                let mut monitor = resource_monitor.write();
+                monitor.update();
+            }
+        });
+    }
+
+    fn start_metrics_collection(&self) {
+        let metrics = self.metrics.clone();
+        let tasks = self.tasks.clone();
+        tokio::spawn(async move {
+            let mut interval = interval(Duration::from_millis(METRICS_UPDATE_INTERVAL_MS));
+            loop {
+                interval.tick().await;
+                let completed_tasks = tasks.iter().filter(|entry| entry.value().status == TaskStatus::Completed).count();
+                metrics.update_gauge("tasks.completed".to_string(), completed_tasks as f64);
+                metrics.update_gauge("tasks.in_progress".to_string(), (tasks.len() - completed_tasks) as f64);
+            }
+        });
+    }
+
+    pub async fn process_with_ntm(&self, input: &[f32]) -> Result<Vec<f32>, OmniXError> {
+        let input_array = Array1::from_vec(input.to_vec());
+        let mut ntm = self.ntm.write();
+        let output = ntm.forward(&input_array)
+            .map_err(|e| OmniXError::ProcessingError(format!("NTM forward pass failed: {}", e)))?;
+        Ok(output.to_vec())
+    }
+
+    pub async fn reset_ntm(&self) -> Result<(), OmniXError> {
+        let mut ntm = self.ntm.write();
+        ntm.reset();
+        Ok(())
+    }
+
+    pub async fn expand_context_window(&self, data: &[u8]) -> Result<(), OmniXError> {
+        let data_f32: Vec<f32> = data.iter().map(|&x| x as f32 / 255.0).collect();
+        let processed = self.process_with_ntm(&data_f32).await?;
+        self.context_window_manager.add_chunk(processed).await
+    }
+
+    pub async fn retrieve_context(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>, OmniXError> {
+        let query_f32: Vec<f32> = query.bytes().map(|x| x as f32 / 255.0).collect();
+        let processed_query = self.process_with_ntm(&query_f32).await?;
+        self.context_window_manager.get_relevant_chunks(&processed_query, limit).await
+    }
+
+    pub async fn consolidate_memory(&self) -> Result<(), OmniXError> {
+        let chunks = self.context_window_manager.get_all_chunks().await?;
+        let consolidated = self.memory_consolidator.consolidate(&chunks).await?;
+        
+        for chunk in consolidated {
+            let processed = self.process_with_ntm(&chunk.content).await?;
+            self.context_window_manager.add_chunk(processed).await?;
+        }
+        
+        self.reset_ntm().await?;
+        
+        Ok(())
+    }
+
+    pub fn select_storage_backend(&self, usage_frequency: usize) -> Arc<dyn StorageBackend> {
+        if usage_frequency > HIGH_FREQUENCY_THRESHOLD {
+            self.storage_backends[0].clone()
+        } else if usage_frequency > MEDIUM_FREQUENCY_THRESHOLD {
+            self.storage_backends[1].clone()
+        } else {
+            self.storage_backends[2].clone()
+        }
+    }
+
+    pub fn select_compression_strategy(&self, data_size: usize) -> Box<dyn CompressionStrategy> {
+        if data_size > MAX_DATA_SIZE {
+            Box::new(ZstdCompression)
+        } else {
+            Box::new(LZ4Compression)
+        }
+    }
+
+    pub async fn store_data(&self, key: &str, data: &[u8], usage_frequency: usize) -> Result<(), OmniXError> {
+        let compression_strategy = self.select_compression_strategy(data.len());
+        let compressed_data = self.compression_manager.compress(compression_strategy.as_ref(), data)?;
+        let storage_backend = self.select_storage_backend(usage_frequency);
+        storage_backend.store(key, &compressed_data)?;
+
+        let cache_futures: Vec<_> = self.retrieval_caches.iter().map(|cache| {
+            let cache_key = key.to_string();
+            let cache_data = compressed_data.clone();
+            cache.set(&cache_key, &cache_data)
+        }).collect();
+
+        for result in join_all(cache_futures).await {
+            if let Err(e) = result {
+                self.metrics.increment_counter("cache.set.failure".to_string(), 1);
+                e.log();
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn retrieve_data(&self, key: &str, usage_frequency: usize) -> Result<Vec<u8>, OmniXError> {
+        for cache in &self.retrieval_caches {
+            match cache.get(key) {
+                Ok(Some(cached_data)) => {
+                    let compression_strategy = self.select_compression_strategy(cached_data.len());
+                    let decompressed_data = self.compression_manager.decompress(compression_strategy.as_ref(), &cached_data)?;
+                    self.metrics.increment_counter("cache.hit".to_string(), 1);
+                    return Ok(decompressed_data);
+                }
+                Ok(None) => continue,
+                Err(e) => {
+                    self.metrics.increment_counter("cache.get.failure".to_string(), 1);
+                    e.log();
+                }
+            }
+        }
+
+        self.metrics.increment_counter("cache.miss".to_string(), 1);
+        let storage_backend = self.select_storage_backend(usage_frequency);
+        let stored_data = storage_backend.retrieve(key)?;
+        let compression_strategy = self.select_compression_strategy(stored_data.len());
+        let decompressed_data = self.compression_manager.decompress(compression_strategy.as_ref(), &stored_data)?;
+
+        let cache_futures: Vec<_> = self.retrieval_caches.iter().map(|cache| {
+            let cache_key = key.to_string();
+            let cache_data = stored_data.clone();
+            cache.set(&cache_key, &cache_data)
+        }).collect();
+
+        for result in join_all(cache_futures).await {
+            if let Err(e) = result {
+                self.metrics.increment_counter("cache.set.failure".to_string(), 1);
+                e.log();
+            }
+        }
+
+        Ok(decompressed_data)
+    }
+}
+
+#[async_trait]
+impl OmniXurge for AproarManager {
+    async fn parallelize_task<T: Send + Sync + 'static>(&self, task: T) -> Result<Uuid, OmniXError> {
+        if self.current_task_count.load(Ordering::SeqCst) >= self.max_concurrent_tasks {
+            return Err(OmniXError::OperationFailed {
+                operation: "Task scheduling".to_string(),
+                details: "Max concurrent tasks limit reached".to_string(),
+            });
+        }
+
+        let task_id = Uuid::new_v4();
+        let tasks_clone = self.tasks.clone();
+        let metrics_clone = self.metrics.clone();
+        let current_task_count = self.current_task_count.clone();
+
+        let task_metadata = TaskMetadata {
+            progress: 0.0,
+            status: TaskStatus::Scheduled,
+        };
+        tasks_clone.insert(task_id, task_metadata);
+        current_task_count.fetch_add(1, Ordering::SeqCst);
+
+        task::spawn(async move {
+            let start_time = Instant::now();
+            let result = task.execute().await;
+            let execution_time = start_time.elapsed();
+
+            if let Some(mut entry) = tasks_clone.get_mut(&task_id) {
+                match result {
+                    Ok(_) => {
+                        entry.progress = 100.0;
+                        entry.status = TaskStatus::Completed;
+                        metrics_clone.increment_counter("tasks.completed".to_string(), 1);
+                        metrics_clone.record_histogram("task.execution_time".to_string(), execution_time.as_secs_f64());
+                    }
+                    Err(e) => {
+                        entry.status = TaskStatus::Failed;
+                        metrics_clone.increment_counter("tasks.failed".to_string(), 1);
+                        e.log();
+                    }
+                }
+            }
+            current_task_count.fetch_sub(1, Ordering::SeqCst);
+        });
+
+        Ok(task_id)
+    }
+
+    async fn get_parallelized_task_status(&self, task_id: Uuid) -> Option<TaskMetadata> {
+        self.tasks.get(&task_id).map(|entry| entry.value().clone())
+    }
+
+    async fn get_resource_utilization(&self) -> Result<ResourceMonitor, OmniXError> {
+        Ok(self.resource_monitor.read().clone())
+    }
+
+    async fn tune_hyperparameters<H: Hyperparameters + Send + Sync>(&self, config: TunerConfig<H>) -> Result<H, OmniXError> {
+        let mut best_params = config.initial_params;
+        let mut best_score = f64::MIN;
+
+        for _ in 0..config.max_iterations {
+            let mut current_params = best_params.clone();
+            current_params.adjust();
+            let score = self.evaluate_hyperparameters(&current_params).await?;
+
+            if score > best_score {
+                best_score = score;
+                best_params = current_params;
+            }
+
+            self.metrics.record_histogram("hyperparameter_tuning.score".to_string(), score);
+        }
+
+        self.metrics.update_gauge("hyperparameter_tuning.best_score".to_string(), best_score);
+        Ok(best_params)
+    }
+
+    async fn accelerate(&self) -> Result<(), OmniXError> {
+        let mut resource_monitor = self.resource_monitor.write();
+        let current_cpu_usage = resource_monitor.cpu_usage;
+        let current_memory_usage = resource_monitor.memory_usage;
+
+        let new_cpu_allocation = (current_cpu_usage * 1.2).min(100.0);
+        let new_memory_allocation = (current_memory_usage * 1.2).min(100.0);
+
+        resource_monitor.cpu_usage = new_cpu_allocation;
+        resource_monitor.memory_usage = new_memory_allocation;
+
+        self.max_concurrent_tasks = (self.max_concurrent_tasks as f64 * 1.2) as usize;
+
+        self.metrics.increment_counter("resource.accelerate".to_string(), 1);
+        self.metrics.update_gauge("resource.cpu_allocation".to_string(), new_cpu_allocation);
+        self.metrics.update_gauge("resource.memory_allocation".to_string(), new_memory_allocation);
+        self.metrics.update_gauge("resource.max_concurrent_tasks".to_string(), self.max_concurrent_tasks as f64);
+
+        Ok(())
+    }
+
+    async fn decelerate(&self) -> Result<(), OmniXError> {
+        self.metrics.increment_counter("resource.decelerate".to_string(), 1);
+        Ok(())
+    }
+
+    async fn collect_metrics(&self) -> Result<Metrics, OmniXError> {
+        let data_processed = self.metrics.get_counter_value("data.processed".to_string()) as usize;
+        let tasks_completed = self.metrics.get_counter_value("tasks.completed".to_string()) as usize;
+        Ok(Metrics {
+            data_processed,
+            tasks_completed,
+        })
+    }
+
+    async fn shutdown(&self) -> Result<(), OmniXError> {
+        while self.current_task_count.load(Ordering::SeqCst) > 0 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        self.metrics.increment_counter("system.shutdown".to_string(), 1);
+        Ok(())
+    }
+
+    async fn submit_task_with_progress<T, F>(&self, task: T, progress_callback: F) -> Result<Uuid, OmniXError>
+    where
+        T: TaskMaster + Send + 'static,
+        F: Fn(TaskProgress) + Send + Sync + 'static,
+    {
+        if self.current_task_count.load(Ordering::SeqCst) >= self.max_concurrent_tasks {
+            return Err(OmniXError::OperationFailed {
+                operation: "Task scheduling".to_string(),
+                details: "Max concurrent tasks limit reached".to_string(),
+            });
+        }
+
+        let task_id = Uuid::new_v4();
+        let tasks_clone = self.tasks.clone();
+        let metrics_clone = self.metrics.clone();
+        let progress_callback = Arc::new(progress_callback);
+        let current_task_count = self.current_task_count.clone();
+
+        let task_metadata = TaskMetadata {
+            progress: 0.0,
+            status: TaskStatus::Scheduled,
+        };
+        tasks_clone.insert(task_id, task_metadata);
+        current_task_count.fetch_add(1, Ordering::SeqCst);
+
+        task::spawn(async move {
+            let start_time = Instant::now();
+            let result = task.execute_with_progress(task_id, progress_callback.clone()).await;
+            let execution_time = start_time.elapsed();
+
+            if let Some(mut entry) = tasks_clone.get_mut(&task_id) {
+                match result {
+                    Ok(_) => {
+                        entry.progress = 100.0;
+                        entry.status = TaskStatus::Completed;
+                        metrics_clone.increment_counter("tasks.completed".to_string(), 1);
+                        metrics_clone.record_histogram("task.execution_time".to_string(), execution_time.as_secs_f64());
+                    }
+                    Err(e) => {
+                        entry.status = TaskStatus::Failed;
+                        metrics_clone.increment_counter("tasks.failed".to_string(), 1);
+                        e.log();
+                    }
+                }
+            }
+
+            current_task_count.fetch_sub(1, Ordering::SeqCst);
+        });
+
+        Ok(task_id)
+    }
+
+    async fn recover_and_resume_tasks(&self) -> Result<(), OmniXError> {
+        for task_entry in self.tasks.iter() {
+            let task_id = task_entry.key().clone();
+            let task_metadata = task_entry.value().clone();
+
+            if task_metadata.status == TaskStatus::Scheduled || task_metadata.status == TaskStatus::Running {
+                log::warn!("Recovering task with ID: {}", task_id);
+            }
+        }
+
+        self.metrics.increment_counter("tasks.recovered".to_string(), 1);
+        Ok(())
+    }
+}
+
+
+
+
+
+--- src/aproar/ntm/addressing.rs ---
+
+// src/ntm/addressing.rs
+use ndarray::{Array1, Array2};
+use ndarray_stats::QuantileExt;
+use crate::omnixtracker::omnixerror::NTMError;
+
+pub struct AddressingMechanism {
+    memory_size: usize,
+    key_size: usize,
+}
+
+impl AddressingMechanism {
+    pub fn new(memory_size: usize, key_size: usize) -> Self {
+        AddressingMechanism { memory_size, key_size }
+    }
+
+    pub fn content_addressing(&self, key: &Array1<f32>, beta: f32, memory: &Array2<f32>) -> Result<Array1<f32>, NTMError> {
+        if key.len() != self.key_size {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![self.key_size],
+                actual: vec![key.len()],
+            });
+        }
+        let similarities = memory.dot(key);
+        let scaled_similarities = similarities * beta;
+        self.softmax(&scaled_similarities)
+    }
+
+    pub fn interpolate(&self, w_prev: &Array1<f32>, w_c: &Array1<f32>, g: f32) -> Result<Array1<f32>, NTMError> {
+        if w_prev.len() != self.memory_size || w_c.len() != self.memory_size {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![self.memory_size, self.memory_size],
+                actual: vec![w_prev.len(), w_c.len()],
+            });
+        }
+        Ok(w_prev * (1.0 - g) + w_c * g)
+    }
+
+    pub fn shift(&self, w: &Array1<f32>, s: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
+        if w.len() != self.memory_size || s.len() != 3 {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![self.memory_size, 3],
+                actual: vec![w.len(), s.len()],
+            });
+        }
+        let mut w_shifted = Array1::zeros(self.memory_size);
+        for i in 0..self.memory_size {
+            for j in -1..=1 {
+                let idx = (i as i32 + j).rem_euclid(self.memory_size as i32) as usize;
+                w_shifted[i] += w[idx] * s[(j + 1) as usize];
+            }
+        }
+        Ok(w_shifted)
+    }
+
+
+    fn softmax(&self, x: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
+        if x.is_empty() {
+            return Err(NTMError::InvalidArgument("Input array is empty in softmax function".to_string()));
+        }
+
+        if x.iter().any(|&a| a.is_nan()) {
+            return Err(NTMError::InvalidArgument("Input array contains NaN values in softmax function".to_string()));
+        }
+
+        let max = x.max(&{unknown}).ok_or_else(|| NTMError::ComputationError)?; // Use ndarray::ArrayBase::max instead of core::cmp::Ord::max
+        let exp = x.mapv(|a| (a - max).exp());
+        let sum = exp.sum();
+        Ok(exp / sum)
+    }
+}  
+
+
+
+
+--- src/aproar/ntm/controller.rs ---
+
+// src/constants/mods.rs
+pub const DEFAULT_MEMORY_SIZE: usize = 1024;
+pub const DEFAULT_MEMORY_VECTOR_SIZE: usize = 64;
+pub const DEFAULT_CONTROLLER_SIZE: usize = 128;
+
+// src/aproar/ntm/mod.rs
+pub mod addressing;
+pub mod controller;
+pub mod memory;
+pub mod read_head;
+pub mod write_head;
+
+pub use addressing::AddressingMechanism;
+pub use controller::NTMController;
+pub use memory::Memory;
+pub use read_head::ReadHead;
+pub use write_head::WriteHead;
+
+use ndarray::{Array1, Array2};
+use crate::omnixtracker::omnixerror::OmniXError;
+use crate::omnixtracker::omnixmetry::{log_info, log_warning, log_error, collect_metrics};
+use crate::omnixtracker::metrics::Metrics;
+use crate::omnixtracker::constants::*;
+use async_trait::async_trait;
+use uuid::Uuid;
+
+#[async_trait]
+pub trait OmniXurge: Send + Sync {
+    async fn parallelize_task<T: TaskMaster + 'static>(&self, task: T) -> Result<Uuid, OmniXError>;
+    async fn get_parallelized_task_status(&self, task_id: Uuid) -> Option<TaskMetadata>;
+    async fn get_resource_utilization(&self) -> Result<ResourceMonitor, OmniXError>;
+    async fn tune_hyperparameters<H: Hyperparameters>(&self, config: TunerConfig<H>) -> Result<H, OmniXError>;
+    async fn accelerate(&self) -> Result<(), OmniXError>;
+    async fn decelerate(&self) -> Result<(), OmniXError>;
+    async fn collect_metrics(&self) -> Result<Metrics, OmniXError>;
+    async fn shutdown(&self) -> Result<(), OmniXError>;
+    async fn submit_task_with_progress<T: TaskMaster + 'static, F: Fn(TaskProgress) + Send + 'static>(
+        &self,
+        task: T,
+        progress_callback: F,
+    ) -> Result<Uuid, OmniXError>;
+    async fn recover_and_resume_tasks(&self) -> Result<(), OmniXError>;
+}
+
+pub struct NTM {
+    controller: NTMController,
+    memory: Memory,
+    read_head: ReadHead,
+    write_head: WriteHead,
+    memory_size: usize,
+    memory_vector_size: usize,
+    controller_output_size: usize,
+}
+
+impl NTM {
+    pub fn new(
+        input_size: usize,
+        output_size: usize,
+        memory_size: usize,
+        memory_vector_size: usize,
+        controller_size: usize,
+        config: &Config,
+    ) -> Result<Self, OmniXError> {
+        log_info("Initializing NTM...");
+        let controller_output_size = memory_vector_size * 2 + 6;
+        let controller = NTMController::new(input_size + memory_vector_size, output_size + controller_output_size, memory_vector_size, memory_size, config)?;
+        let memory = Memory::new(memory_size, memory_vector_size);
+        let read_head = ReadHead::new(memory_size, memory_vector_size);
+        let write_head = WriteHead::new(memory_size, memory_vector_size, memory_vector_size);
+
+        Ok(Self {
+            controller,
+            memory,
+            read_head,
+            write_head,
+            memory_size,
+            memory_vector_size,
+            controller_output_size,
+        })
+    }
+
+    pub async fn forward(&mut self, input: &Array1<f32>) -> Result<Array1<f32>, OmniXError> {
+        log_info("Forward pass initiated...");
+        let prev_read_weights = Array1::ones(self.memory_size) / self.memory_size as f32;
+        let prev_read = self.read_head.read(&self.memory, &prev_read_weights)?;
+
+        let (output, controller_output) = self.controller.forward(input)?;
+
+        let read_weights = self.read_head.get_weights(
+            &controller_output,
+            &prev_read_weights,
+            &self.memory.read(&prev_read_weights)?,
+        )?;
+        
+        let write_weights = self.write_head.get_weights(
+            &controller_output,
+            &prev_read_weights,
+            &self.memory.read(&prev_read_weights)?,
+        )?;
+        
+        let erase_vector = self.write_head.get_erase_vector(&controller_output)?;
+        let add_vector = self.write_head.get_add_vector(&controller_output)?;
+
+        self.memory.write(&write_weights, &erase_vector, &add_vector)?;
+
+        let read_vector = self.read_head.read(&self.memory, &read_weights)?;
+
+        collect_metrics("Forward pass completed successfully.".to_string());
+        Ok(output)
+    }
+
+    pub async fn reset(&mut self) {
+        log_info("Resetting NTM state...");
+        self.memory.clear();
+        collect_metrics("NTM state has been reset.");
+    }
+}
+
+// src/aproar/ntm/controller.rs (Assumed already provided as per your earlier code)
+use super::*;
+use std::cell::RefCell;
+
+pub struct NTMController {
+    memory: Memory,
+    read_head: ReadHead,
+    write_head: WriteHead,
+    controller_size: usize,
+    memory_vector_size: usize,
+    num_read_heads: usize,
+    num_write_heads: usize,
+    lstm: LSTM,
+    prev_read_weights: RefCell<Vec<Array1<f32>>>,
+    prev_write_weights: RefCell<Vec<Array1<f32>>>,
+}
+
+impl NTMController {
+    pub fn new(memory_size: usize, memory_vector_size: usize, controller_size: usize, num_read_heads: usize, num_write_heads: usize) -> Result<Self, OmniXError> {
+        let read_head = ReadHead::new(memory_size, memory_vector_size);
+        let write_head = WriteHead::new(memory_size, memory_vector_size, memory_vector_size);
+        let input_size = memory_vector_size * num_read_heads + memory_vector_size;
+        let output_size = controller_size + num_read_heads * (memory_vector_size + 6) + num_write_heads * (memory_vector_size * 2 + 6);
+        
+        Ok(NTMController {
+            memory: Memory::new(memory_size, memory_vector_size),
+            read_head,
+            write_head,
+            controller_size,
+            memory_vector_size,
+            num_read_heads,
+            num_write_heads,
+            lstm: LSTM::new(input_size, controller_size, output_size),
+            prev_read_weights: RefCell::new(vec![Array1::zeros(memory_size); num_read_heads]),
+            prev_write_weights: RefCell::new(vec![Array1::zeros(memory_size); num_write_heads]),
+        })
+    }
+
+    pub fn forward(&self, input: &Array1<f32>) -> Result<(Array1<f32>, Array1<f32>), OmniXError> {
+        let mut prev_read_weights = self.prev_read_weights.borrow_mut();
+        let mut prev_write_weights = self.prev_write_weights.borrow_mut();
+        let memory = self.memory.read_memory();
+
+        let mut read_vectors = Vec::with_capacity(self.num_read_heads);
+        for weights in prev_read_weights.iter() {
+            read_vectors.push(self.read_head.read(&self.memory, weights)?);
+        }
+
+        let controller_input = Array1::from_iter(input.iter().cloned().chain(read_vectors.iter().flat_map(|v| v.iter().cloned())));
+        let controller_output = self.lstm.forward(&controller_input)?;
+
+        let mut output = controller_output.slice(s![..self.controller_size]).to_owned();
+        let mut idx = self.controller_size;
+
+        for i in 0..self.num_read_heads {
+            let weights = self.read_head.get_weights(
+                &controller_output.slice(s![idx..idx + self.memory_vector_size + 6]),
+                &prev_read_weights[i],
+                &memory,
+            )?;
+            let read_vector = self.read_head.read(&self.memory, &weights)?;
+            output = Array1::from_iter(output.iter().cloned().chain(read_vector.iter().cloned()));
+            prev_read_weights[i] = weights;
+            idx += self.memory_vector_size + 6;
+        }
+
+        for i in 0..self.num_write_heads {
+            let weights = self.write_head.get_weights(
+                &controller_output.slice(s![idx..idx + self.memory_vector_size + 6]),
+                &prev_write_weights[i],
+                &memory,
+            )?;
+            let erase_vector = self.write_head.get_erase_vector(&controller_output.slice(s![idx..]))?;
+            let add_vector = self.write_head.get_add_vector(&controller_output.slice(s![idx..]))?;
+            self.memory.write(&weights, &erase_vector, &add_vector)?;
+            prev_write_weights[i] = weights;
+            idx += self.memory_vector_size * 2 + 6;
+        }
+
+        Ok((output, controller_output))
+    }
+}
+
+
+
+
+
+--- src/aproar/ntm/memory.rs ---
+
+use super::*;
+use std::sync::Arc;
+use parking_lot::RwLock;
+
+#[derive(Clone)]
+pub struct Memory {
+    memory: Arc<RwLock<Array2<f32>>>,
+}
+
+impl Memory {
+    pub fn new(memory_size: usize, memory_vector_size: usize) -> Self {
+        Memory {
+            memory: Arc::new(RwLock::new(Array2::zeros((memory_size, memory_vector_size)))),
+        }
+    }
+
+    pub fn read(&self, weights: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
+        let memory = self.memory.read();
+        if weights.len() != memory.shape()[0] {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![memory.shape()[0]],
+                actual: vec![weights.len()],
+            });
+        }
+        Ok(memory.t().dot(weights))
+    }
+
+    pub fn write(&self, weights: &Array1<f32>, erase: &Array1<f32>, add: &Array1<f32>) -> Result<(), NTMError> {
+        let mut memory = self.memory.write();
+        if weights.len() != memory.shape()[0] || erase.len() != memory.shape()[1] || add.len() != memory.shape()[1] {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![memory.shape()[0], memory.shape()[1], memory.shape()[1]],
+                actual: vec![weights.len(), erase.len(), add.len()],
+            });
+        }
+        let erase_term = weights.dot(&erase.t());
+        let add_term = weights.dot(&add.t());
+        *memory = &*memory * (1.0 - &erase_term) + &add_term;
+        Ok(())
+    }
+}
+
+
+
+
+
+--- src/aproar/ntm/mod.rs ---
+
+pub mod addressing;
+pub mod controller;
+pub mod memory;
+pub mod read_head;
+pub mod write_head;
+
+pub use addressing::AddressingMechanism;
+pub use controller::NTMController;
+pub use memory::Memory;
+pub use read_head::ReadHead;
+pub use write_head::WriteHead;
+
+use ndarray::{Array1, Array2};
+use crate::omnixtracker::omnixerror::OmniXError;
+use crate::omnixtracker::omnixmetry::{log_info, log_warning, log_error, collect_metrics};
+use crate::omnixtracker::metrics::Metrics;
+use crate::omnixtracker::constants::*;
+use async_trait::async_trait;
+use uuid::Uuid;
+
+#[async_trait]
+pub trait OmniXurge: Send + Sync {
+    async fn parallelize_task<T: TaskMaster + 'static>(&self, task: T) -> Result<Uuid, OmniXError>;
+    async fn get_parallelized_task_status(&self, task_id: Uuid) -> Option<TaskMetadata>;
+    async fn get_resource_utilization(&self) -> Result<ResourceMonitor, OmniXError>;
+    async fn tune_hyperparameters<H: Hyperparameters>(&self, config: TunerConfig<H>) -> Result<H, OmniXError>;
+    async fn accelerate(&self) -> Result<(), OmniXError>;
+    async fn decelerate(&self) -> Result<(), OmniXError>;
+    async fn collect_metrics(&self) -> Result<Metrics, OmniXError>;
+    async fn shutdown(&self) -> Result<(), OmniXError>;
+    async fn submit_task_with_progress<T: TaskMaster + 'static, F: Fn(TaskProgress) + Send + 'static>(
+        &self,
+        task: T,
+        progress_callback: F,
+    ) -> Result<Uuid, OmniXError>;
+    async fn recover_and_resume_tasks(&self) -> Result<(), OmniXError>;
+}
+
+pub struct NTM {
+    controller: NTMController,
+    memory: Memory,
+    read_head: ReadHead,
+    write_head: WriteHead,
+    memory_size: usize,
+    memory_vector_size: usize,
+    controller_output_size: usize,
+}
+
+impl NTM {
+    pub fn new(
+        input_size: usize,
+        output_size: usize,
+        memory_size: usize,
+        memory_vector_size: usize,
+        controller_size: usize,
+        config: &Config,
+    ) -> Result<Self, OmniXError> {
+        log_info("Initializing NTM...");
+        let controller_output_size = memory_vector_size * 2 + 6;
+        let controller = NTMController::new(input_size + memory_vector_size, output_size + controller_output_size, memory_vector_size, memory_size, config)?;
+        let memory = Memory::new(memory_size, memory_vector_size);
+        let read_head = ReadHead::new(memory_size, memory_vector_size);
+        let write_head = WriteHead::new(memory_size, memory_vector_size, memory_vector_size);
+
+        Ok(Self {
+            controller,
+            memory,
+            read_head,
+            write_head,
+            memory_size,
+            memory_vector_size,
+            controller_output_size,
+        })
+    }
+
+    pub async fn forward(&mut self, input: &Array1<f32>) -> Result<Array1<f32>, OmniXError> {
+        log_info("Forward pass initiated...");
+        let prev_read_weights = Array1::ones(self.memory_size) / self.memory_size as f32;
+        let prev_read = self.read_head.read(&self.memory, &prev_read_weights)?;
+
+        let (output, controller_output) = self.controller.forward(input)?;
+
+        let read_weights = self.read_head.get_weights(
+            &controller_output,
+            &prev_read_weights,
+            &self.memory.read(&prev_read_weights)?,
+        )?;
+        
+        let write_weights = self.write_head.get_weights(
+            &controller_output,
+            &prev_read_weights,
+            &self.memory.read(&prev_read_weights)?,
+        )?;
+        
+        let erase_vector = self.write_head.get_erase_vector(&controller_output)?;
+        let add_vector = self.write_head.get_add_vector(&controller_output)?;
+
+        self.memory.write(&write_weights, &erase_vector, &add_vector)?;
+
+        let read_vector = self.read_head.read(&self.memory, &read_weights)?;
+
+        collect_metrics("Forward pass completed successfully.".to_string());
+        Ok(output)
+    }
+
+    pub async fn reset(&mut self) {
+        log_info("Resetting NTM state...");
+        self.memory.clear();
+        collect_metrics("NTM state has been reset.");
+    }
+}
+
+
+
+
+--- src/aproar/ntm/read_head.rs ---
+
+// src/aproar/ntm/read_head.rs
+
+use super::*;
+
+pub struct ReadHead {
+    addressing: AddressingMechanism,
+    key_size: usize,
+}
+
+impl ReadHead {
+    pub fn new(memory_size: usize, key_size: usize) -> Self {
+        ReadHead {
+            addressing: AddressingMechanism::new(memory_size, key_size),
+            key_size,
+        }
+    }
+
+    pub fn read(&self, memory: &Memory, weights: &Array1<f32>) -> Result<Array1<f32>> {
+        memory.read(weights)
+    }
+
+    pub fn get_weights(&self, controller_output: &Array1<f32>, prev_weights: &Array1<f32>, memory: &Array2<f32>) -> Result<Array1<f32>> {
+        if controller_output.len() != self.key_size + 6 {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![self.key_size + 6],
+                actual: vec![controller_output.len()],
+            });
+        }
+
+        let key = controller_output.slice(s![..self.key_size]).to_owned();
+        let beta = controller_output[self.key_size].exp();
+        let g = controller_output[self.key_size + 1].sigmoid();
+        let s = controller_output.slice(s![self.key_size+2..self.key_size+5]).to_owned();
+        let gamma = controller_output[self.key_size + 5].exp() + 1.0;
+
+        let w_c = self.addressing.content_addressing(&key, beta, memory)?;
+        let w_g = self.addressing.interpolate(prev_weights, &w_c, g)?;
+        let w_s = self.addressing.shift(&w_g, &s)?;
+        self.addressing.sharpen(&w_s, gamma)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_abs_diff_eq;
+
+    #[test]
+    fn test_read_head() -> Result<()> {
+        let memory_size = 10;
+        let key_size = 4;
+        let read_head = ReadHead::new(memory_size, key_size);
+        let memory = Memory::new(memory_size, key_size);
+        
+        // Initialize memory with some values
+        let weights = Array1::from_vec(vec![0.1; memory_size]);
+        let erase = Array1::zeros(key_size);
+        let add = Array1::from_vec(vec![1.0; key_size]);
+        memory.write(&weights, &erase, &add)?;
+
+        // Test reading
+        let read_weights = Array1::from_vec(vec![0.2; memory_size]);
+        let read_result = read_head.read(&memory, &read_weights)?;
+        assert_eq!(read_result.len(), key_size);
+
+        // Test get_weights
+        let controller_output = Array1::from_vec(vec![0.1; key_size + 6]);
+        let prev_weights = Array1::from_vec(vec![0.1; memory_size]);
+        let memory_content = memory.read_memory();
+        let new_weights = read_head.get_weights(&controller_output, &prev_weights, &memory_content)?;
+        
+        assert_eq!(new_weights.len(), memory_size);
+        assert_abs_diff_eq!(new_weights.sum(), 1.0, epsilon = 1e-6);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_head_errors() {
+        let memory_size = 10;
+        let key_size = 4;
+        let read_head = ReadHead::new(memory_size, key_size);
+        
+        // Test error on invalid controller output size
+        let invalid_controller_output = Array1::zeros(key_size);
+        let prev_weights = Array1::from_vec(vec![0.1; memory_size]);
+        let memory_content = Array2::zeros((memory_size, key_size));
+        
+        assert!(matches!(
+            read_head.get_weights(&invalid_controller_output, &prev_weights, &memory_content),
+            Err(NTMError::ShapeMismatch { .. })
+        ));
+    }
+}
+
+
+
+
+
+--- src/aproar/ntm/write_head.rs ---
+
+// src/aproar/ntm/write_head.rs
+
+use super::*;
+
+pub struct WriteHead {
+    addressing: AddressingMechanism,
+    key_size: usize,
+    memory_vector_size: usize,
+}
+
+impl WriteHead {
+    pub fn new(memory_size: usize, key_size: usize, memory_vector_size: usize) -> Self {
+        WriteHead {
+            addressing: AddressingMechanism::new(memory_size, key_size),
+            key_size,
+            memory_vector_size,
+        }
+    }
+
+    pub fn get_weights(&self, controller_output: &Array1<f32>, prev_weights: &Array1<f32>, memory: &Array2<f32>) -> Result<Array1<f32>, NTMError> {
+        let key = controller_output.slice(s![..self.key_size]).to_owned();
+        let beta = controller_output[self.key_size].exp();
+        let g = controller_output[self.key_size + 1].sigmoid();
+        let s = controller_output.slice(s![self.key_size+2..self.key_size+5]).to_owned();
+        let gamma = controller_output[self.key_size + 5].exp() + 1.0;
+
+        let w_c = self.addressing.content_addressing(&key, beta, memory)?;
+        let w_g = self.addressing.interpolate(prev_weights, &w_c, g)?;
+        let w_s = self.addressing.shift(&w_g, &s)?;
+        self.addressing.sharpen(&w_s, gamma)
+    }
+
+    pub fn get_erase_vector(&self, controller_output: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
+        let start = self.key_size + 6;
+        let end = start + self.memory_vector_size;
+        if end > controller_output.len() {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![end],
+                actual: vec![controller_output.len()],
+            });
+        }
+        Ok(controller_output.slice(s![start..end]).mapv(|x| x.sigmoid()))
+    }
+
+    pub fn get_add_vector(&self, controller_output: &Array1<f32>) -> Result<Array1<f32>, NTMError> {
+        let start = self.key_size + 6 + self.memory_vector_size;
+        let end = start + self.memory_vector_size;
+        if end > controller_output.len() {
+            return Err(NTMError::ShapeMismatch {
+                expected: vec![end],
+                actual: vec![controller_output.len()],
+            });
+        }
+        Ok(controller_output.slice(s![start..end]).to_owned())
+    }
+}
+
+
+
+
+--- src/aproar/retrieval/mod.rs ---
+
+// src/aproar/retrieval/mod.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[RETRIEVAL]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+mod redis_cache;
+mod rocksdb_persistence;
+
+use crate::omnixtracker::OmniXError;
+use anyhow::Result;
+use async_trait::async_trait;
+
+pub use redis_cache::RedisCache;
+pub use rocksdb_persistence::RocksDBPersistence;
+
+#[async_trait]
+pub trait RetrievalCache: Send + Sync {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>, OmniXError>;
+    fn set(&self, key: &str, value: &[u8]) -> Result<(), OmniXError>;
+}
+
+
+
+
+--- src/aproar/retrieval/redis_cache.rs ---
+
+// src/aproar/retrieval/redis_cache.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[RETRIEVAL]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use crate::omnixtracker::{OmniXError, OmniXMetry};
+use super::RetrievalCache;
+use redis::{AsyncCommands, Client};
+use anyhow::{Context, Result};
+use tokio::runtime::Runtime;
+use parking_lot::RwLock;
+use std::sync::Arc;
+
+
+pub struct RedisCache {
+    client: Client,
+    runtime: Arc<Runtime>,
+    metrics: OmniXMetry,
+}
+
+impl RedisCache {
+    pub fn new(redis_url: &str, metrics: OmniXMetry) -> Result<Self, OmniXError> {
+        let client = Client::open(redis_url)
+            .with_context(|| "Failed to create Redis client")
+            .map_err(|e| OmniXError::NetworkError(e.to_string()))?;
+
+        let runtime = Runtime::new()
+            .with_context(|| "Failed to create Tokio runtime")
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Creating Tokio runtime".to_string(),
+                details: e.to_string(),
+            })?;
+
+        Ok(Self {
+            client,
+            runtime: Arc::new(runtime),
+            metrics,
+        })
+    }
+}
+
+impl RetrievalCache for RedisCache {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>, OmniXError> {
+        let client = self.client.clone();
+        let key = key.to_string();
+        let metrics = self.metrics.clone();
+
+        self.runtime.block_on(async move {
+            let start_time = std::time::Instant::now();
+            let mut con = client
+                .get_async_connection()
+                .await
+                .with_context(|| "Failed to get Redis connection")
+                .map_err(|e| OmniXError::NetworkError(e.to_string()))?;
+
+            let result: Result<Option<Vec<u8>>, redis::RedisError> = con.get(key).await;
+            let duration = start_time.elapsed();
+
+            metrics.record_histogram("redis.get.duration".to_string(), duration.as_secs_f64());
+            metrics.increment_counter("redis.get.total".to_string(), 1);
+
+            match result {
+                Ok(value) => {
+                    metrics.increment_counter("redis.get.success".to_string(), 1);
+                    Ok(value)
+                }
+                Err(e) => {
+                    metrics.increment_counter("redis.get.failure".to_string(), 1);
+                    Err(OmniXError::NetworkError(e.to_string()))
+                }
+            }
+        })
+    }
+
+    fn set(&self, key: &str, value: &[u8]) -> Result<(), OmniXError> {
+        let client = self.client.clone();
+        let key = key.to_string();
+        let value = value.to_vec();
+        let metrics = self.metrics.clone();
+
+        self.runtime.block_on(async move {
+            let start_time = std::time::Instant::now();
+            let mut con = client
+                .get_async_connection()
+                .await
+                .with_context(|| "Failed to get Redis connection")
+                .map_err(|e| OmniXError::NetworkError(e.to_string()))?;
+
+            let result: Result<(), redis::RedisError> = con.set(key, value).await;
+            let duration = start_time.elapsed();
+
+            metrics.record_histogram("redis.set.duration".to_string(), duration.as_secs_f64());
+            metrics.increment_counter("redis.set.total".to_string(), 1);
+
+            match result {
+                Ok(_) => {
+                    metrics.increment_counter("redis.set.success".to_string(), 1);
+                    Ok(())
+                }
+                Err(e) => {
+                    metrics.increment_counter("redis.set.failure".to_string(), 1);
+                    Err(OmniXError::NetworkError(e.to_string()))
+                }
+            }
+        })
+    }
+}
+
+
+
+
+--- src/aproar/retrieval/rocksdb_persistence.rs ---
+
+// src/aproar/retrieval/rocksdb_persistence.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[RETRIEVAL]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use super::RetrievalCache;
+use crate::omnixtracker::{OmniXError, OmniXMetry};
+use anyhow::{Context, Result};
+use rocksdb::{Options, DB};
+use std::path::PathBuf;
+use parking_lot::RwLock;
+use std::sync::Arc;
+
+pub struct RocksDBPersistence {
+    db: Arc<RwLock<DB>>,
+    metrics: OmniXMetry,
+}
+
+impl RocksDBPersistence {
+    pub fn new(db_path: PathBuf, metrics: OmniXMetry) -> Result<Self, OmniXError> {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        let db = DB::open(&opts, &db_path)
+            .with_context(|| format!("Failed to open RocksDB at {}", db_path.display()))
+            .map_err(|e| OmniXError::DatabaseError(e.to_string()))?;
+
+        Ok(Self {
+            db: Arc::new(RwLock::new(db)),
+            metrics,
+        })
+    }
+}
+
+impl RetrievalCache for RocksDBPersistence {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>, OmniXError> {
+        let start_time = std::time::Instant::now();
+        let result = self.db.read().get(key.as_bytes());
+        let duration = start_time.elapsed();
+
+        self.metrics.record_histogram("rocksdb.get.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("rocksdb.get.total".to_string(), 1);
+
+        match result {
+            Ok(value) => {
+                self.metrics.increment_counter("rocksdb.get.success".to_string(), 1);
+                Ok(value)
+            }
+            Err(e) => {
+                self.metrics.increment_counter("rocksdb.get.failure".to_string(), 1);
+                Err(OmniXError::DatabaseError(e.to_string()))
+            }
+        }
+    }
+
+    fn set(&self, key: &str, value: &[u8]) -> Result<(), OmniXError> {
+        let start_time = std::time::Instant::now();
+        let result = self.db.write().put(key.as_bytes(), value);
+        let duration = start_time.elapsed();
+
+        self.metrics.record_histogram("rocksdb.set.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("rocksdb.set.total".to_string(), 1);
+
+        match result {
+            Ok(_) => {
+                self.metrics.increment_counter("rocksdb.set.success".to_string(), 1);
+                Ok(())
+            }
+            Err(e) => {
+                self.metrics.increment_counter("rocksdb.set.failure".to_string(), 1);
+                Err(OmniXError::DatabaseError(e.to_string()))
+            }
+        }
+    }
+}
+
+
+
+
+--- src/aproar/storage/hdf5_storage.rs ---
+
+// src/aproar/storage/hdf5_storage.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[STORAGE]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use super::StorageBackend;
+use crate::omnixtracker::{OmniXError, OmniXMetry};
+use anyhow::{Context, Result};
+use hdf5::File;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+pub struct HDF5Storage {
+    file_path: PathBuf,
+    metrics: OmniXMetry,
+}
+
+impl HDF5Storage {
+    pub fn new(file_path: PathBuf, metrics: OmniXMetry) -> Self {
+        Self { file_path, metrics }
+    }
+}
+
+impl StorageBackend for HDF5Storage {
+    fn store(&self, key: &str, data: &[u8]) -> Result<(), OmniXError> {
+        let start_time = std::time::Instant::now();
+        let file = File::open_rw(&self.file_path)
+            .or_else(|_| File::create(&self.file_path))
+            .with_context(|| "Failed to open or create HDF5 file")
+            .map_err(|e| OmniXError::FileSystemError(e.to_string()))?;
+
+        let dataset = file
+            .new_dataset::<u8>()
+            .shape(data.len())
+            .create(key)
+            .with_context(|| "Failed to create HDF5 dataset")
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "HDF5 dataset creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        dataset.write(data).map_err(|e| OmniXError::OperationFailed {
+            operation: "HDF5 write".to_string(),
+            details: e.to_string(),
+        })?;
+
+        let duration = start_time.elapsed();
+        self.metrics.record_histogram("hdf5.store.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("hdf5.store.success".to_string(), 1);
+
+        Ok(())
+    }
+
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, OmniXError> {
+        let start_time = std::time::Instant::now();
+        let file = File::open(&self.file_path)
+            .with_context(|| "Failed to open HDF5 file")
+            .map_err(|e| OmniXError::FileSystemError(e.to_string()))?;
+
+        let dataset = file.dataset(key).map_err(|e| OmniXError::OperationFailed {
+            operation: "HDF5 dataset access".to_string(),
+            details: e.to_string(),
+        })?;
+
+        let data: Vec<u8> = dataset.read_raw().map_err(|e| OmniXError::OperationFailed {
+            operation: "HDF5 read".to_string(),
+            details: e.to_string(),
+        })?;
+
+        let duration = start_time.elapsed();
+        self.metrics.record_histogram("hdf5.retrieve.duration".to_string(), duration.as_secs_f64());
+        self.metrics.increment_counter("hdf5.retrieve.success".to_string(), 1);
+
+        Ok(data)
+    }
+}
+
+
+
+
+--- src/aproar/storage/mod.rs ---
+
+// src/aproar/storage/mod.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[STORAGE]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+mod hdf5_storage;
+mod parquet_storage;
+mod tiledb_storage;
+
+use crate::omnixtracker::OmnixError;
+
+pub trait StorageBackend {
+    fn store(&self, key: &str, data: &[u8]) -> Result<(), OmnixError>;
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, OmnixError>;
+}
+
+pub use hdf5_storage::HDF5Storage;
+// TODO: Implement and export ParquetStorage and TileDBStorage
+
+
+
+
+--- src/aproar/storage/parquet_storage.rs ---
+
+// src/aproar/storage/parquet_storage.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[STORAGE]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use super::StorageBackend;
+use crate::omnixtracker::OmniXError;
+use anyhow::{Context, Result};
+use parquet::file::properties::WriterProperties;
+use parquet::file::writer::SerializedFileWriter;
+use parquet::file::reader::SerializedFileReader;
+use parquet::schema::parser::parse_message_type;
+use parquet::basic::Compression;
+use parquet::record::{Row, RowAccessor};
+use std::fs::File;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+pub struct ParquetStorage {
+    file_path: PathBuf,
+    schema: Arc<parquet::schema::types::Type>,
+}
+
+impl ParquetStorage {
+    pub fn new(file_path: PathBuf) -> Self {
+        let schema = Arc::new(Self::build_parquet_schema());
+        Self { file_path, schema }
+    }
+
+    fn build_parquet_schema() -> parquet::schema::types::Type {
+        parse_message_type(
+            "
+            message schema {
+                REQUIRED BYTE_ARRAY key (UTF8);
+                REQUIRED BINARY data;
+            }
+            ",
+        )
+        .expect("Failed to parse Parquet schema")
+    }
+}
+
+impl StorageBackend for ParquetStorage {
+    fn store(&self, key: &str, data: &[u8]) -> Result<(), OmniXError> {
+        let file = File::create(&self.file_path)
+            .with_context(|| "Failed to create Parquet file")
+            .map_err(|e| OmniXError::FileSystemError(e.to_string()))?;
+
+        let props = WriterProperties::builder()
+            .set_compression(Compression::SNAPPY)
+            .build();
+
+        let mut writer = SerializedFileWriter::new(file, self.schema.clone(), props)
+            .with_context(|| "Failed to create Parquet writer")
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Parquet writer creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let mut row_group_writer = writer.next_row_group().unwrap();
+        let mut key_column_writer = row_group_writer.next_column().unwrap().unwrap();
+        if let parquet::column::writer::ColumnWriter::ByteArrayColumnWriter(ref mut typed_writer) = key_column_writer {
+            let key_value = parquet::data_type::ByteArray::from(key.as_bytes());
+            typed_writer.write_batch(&[key_value], None, None).unwrap();
+        }
+        row_group_writer.close_column(key_column_writer).unwrap();
+
+        let mut data_column_writer = row_group_writer.next_column().unwrap().unwrap();
+        if let parquet::column::writer::ColumnWriter::ByteArrayColumnWriter(ref mut typed_writer) = data_column_writer {
+            let data_value = parquet::data_type::ByteArray::from(data);
+            typed_writer.write_batch(&[data_value], None, None).unwrap();
+        }
+        row_group_writer.close_column(data_column_writer).unwrap();
+
+        writer.close_row_group(row_group_writer).unwrap();
+        writer.close().unwrap();
+
+        Ok(())
+    }
+
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, OmniXError> {
+        let file = File::open(&self.file_path)
+            .with_context(|| "Failed to open Parquet file")
+            .map_err(|e| OmniXError::FileSystemError(e.to_string()))?;
+
+        let reader = SerializedFileReader::new(file)
+            .with_context(|| "Failed to create Parquet reader")
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Parquet reader creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let iter = reader.get_row_iter(None).unwrap();
+
+        for record in iter {
+            let record_key = record.get_string(0).unwrap();
+            if record_key == key {
+                let data = record.get_bytes(1).unwrap();
+                return Ok(data.to_vec());
+            }
+        }
+
+        Err(OmniXError::OperationFailed {
+            operation: "Parquet retrieval".to_string(),
+            details: "Key not found".to_string(),
+        })
+    }
+}
+
+
+
+
+--- src/aproar/storage/tiledb_storage.rs ---
+
+// src/aproar/storage/tiledb_storage.rs ~=#######D]======A===r===c====M===o===o===n=====<Lord[STORAGE]Xyn>=====S===t===u===d===i===o===s======[R|$>
+
+use super::StorageBackend;
+use crate::omnixtracker::OmniXError;
+use anyhow::{Context, Result};
+use tiledb::Context;
+use tiledb::Array;
+use tiledb::Config;
+use tiledb::Query;
+use tiledb::Datatype;
+use std::path::PathBuf;
+
+pub struct TileDBStorage {
+    array_uri: String,
+    ctx: Context,
+}
+
+impl TileDBStorage {
+    pub fn new(array_uri: &str) -> Self {
+        let ctx = Context::new(&Config::default()).unwrap();
+        Self {
+            array_uri: array_uri.to_string(),
+            ctx,
+        }
+    }
+
+    fn create_array(&self) -> Result<(), OmniXError> {
+        let array_schema = tiledb::ArraySchema::new(&self.ctx, tiledb::ArrayType::Sparse)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "TileDB ArraySchema creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let dim = tiledb::Dimension::new(&self.ctx, "key", Datatype::StringAscii)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "TileDB Dimension creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let domain = tiledb::Domain::new(&self.ctx)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "TileDB Domain creation".to_string(),
+                details: e.to_string(),
+            })?
+            .add_dimension(&dim)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Adding dimension to Domain".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let attr = tiledb::Attribute::new(&self.ctx, "data", Datatype::Blob)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "TileDB Attribute creation".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let array_schema = array_schema
+            .set_domain(&domain)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting Domain on ArraySchema".to_string(),
+                details: e.to_string(),
+            })?
+            .add_attribute(&attr)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Adding Attribute to ArraySchema".to_string(),
+                details: e.to_string(),
+            })?;
+
+        Array::create(&self.ctx, &self.array_uri, &array_schema)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Creating TileDB Array".to_string(),
+                details: e.to_string(),
+            })?;
+
+        Ok(())
+    }
+}
+
+impl StorageBackend for TileDBStorage {
+    fn store(&self, key: &str, data: &[u8]) -> Result<(), OmniXError> {
+        if !Array::exists(&self.ctx, &self.array_uri) {
+            self.create_array()?;
+        }
+
+        let array = Array::open(&self.ctx, &self.array_uri, tiledb::QueryType::Write)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Opening TileDB Array for writing".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let mut query = Query::new(&self.ctx, &array, tiledb::QueryType::Write);
+
+        query
+            .set_layout(tiledb::Layout::Unordered)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting query layout".to_string(),
+                details: e.to_string(),
+            })?
+            .set_buffer("key", vec![key.as_bytes()])
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting key buffer".to_string(),
+                details: e.to_string(),
+            })?
+            .set_buffer("data", data.to_vec())
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting data buffer".to_string(),
+                details: e.to_string(),
+            })?;
+
+        query.submit().map_err(|e| OmniXError::OperationFailed {
+            operation: "Submitting TileDB query".to_string(),
+            details: e.to_string(),
+        })?;
+
+        array.close().unwrap();
+
+        Ok(())
+    }
+
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, OmniXError> {
+        if !Array::exists(&self.ctx, &self.array_uri) {
+            return Err(OmniXError::OperationFailed {
+                operation: "TileDB retrieval".to_string(),
+                details: "Array does not exist".to_string(),
+            });
+        }
+
+        let array = Array::open(&self.ctx, &self.array_uri, tiledb::QueryType::Read)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Opening TileDB Array for reading".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let mut query = Query::new(&self.ctx, &array, tiledb::QueryType::Read);
+
+        query
+            .set_layout(tiledb::Layout::Unordered)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting query layout".to_string(),
+                details: e.to_string(),
+            })?
+            .set_subarray(&[key])
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting subarray".to_string(),
+                details: e.to_string(),
+            })?;
+
+        let data: Vec<u8> = Vec::new();
+        query
+            .set_buffer("data", data)
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Setting data buffer".to_string(),
+                details: e.to_string(),
+            })?;
+
+        query.submit().map_err(|e| OmniXError::OperationFailed {
+            operation: "Submitting TileDB query".to_string(),
+            details: e.to_string(),
+        })?;
+
+        let result_data = query
+            .result_buffer::<u8>("data")
+            .map_err(|e| OmniXError::OperationFailed {
+                operation: "Retrieving result buffer".to_string(),
+                details: e.to_string(),
+            })?
+            .to_vec();
+
+        array.close().unwrap();
+
+        Ok(result_data)
+    }
+}

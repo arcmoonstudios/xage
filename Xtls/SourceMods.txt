@@ -1,0 +1,105 @@
+-- Xtls/SourceMods.txt ~=#######D]======A===r===c====M===o===o===n=====<Lord[XTLS]Xyn>=====S===t===u===d===i===o===s======[R|$>
+# A P R O A R/
+find src/aproar/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_APROAR.txt
+    cat "{}" >> Xdocs/CurrentState_APROAR.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_APROAR.txt
+'
+
+# C O N S T A N T S/
+find src/constants/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Constants.txt
+    cat "{}" >> Xdocs/CurrentState_Constants.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Constants.txt
+'
+
+# D A T A  P R O C E S S I N G/
+find src/data_processing/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_DataProcessing.txt
+    cat "{}" >> Xdocs/CurrentState_DataProcessing.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_DataProcessing.txt
+'
+
+# E X P E R T/
+find src/expert/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Expert.txt
+    cat "{}" >> Xdocs/CurrentState_Expert.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Expert.txt
+'
+
+# I N F E R E N C E/
+find src/inference/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Inference.txt
+    cat "{}" >> Xdocs/CurrentState_Inference.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Inference.txt
+'
+
+# L S M/
+find src/lsm/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_LSM.txt
+    cat "{}" >> Xdocs/CurrentState_LSM.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_LSM.txt
+'
+
+# M O D E L  I N T E R P R E T A B I L I T Y/
+find src/model_interpretability/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_ModelInterpretability.txt
+    cat "{}" >> Xdocs/CurrentState_ModelInterpretability.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_ModelInterpretability.txt
+'
+
+# M A C H I N E S/
+find src/machines/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Machines.txt
+    cat "{}" >> Xdocs/CurrentState_Machines.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Machines.txt
+'
+
+# M O D E L S/
+find src/models/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Models.txt
+    cat "{}" >> Xdocs/CurrentState_Models.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Models.txt
+'
+
+# M U L T I  M O D A L/
+find src/multi_modal/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_MultiModal.txt
+    cat "{}" >> Xdocs/CurrentState_MultiModal.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_MultiModal.txt
+'
+
+# O M N I X E L E R A T O R/
+find src/omnixelerator/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_OmniXelerator.txt
+    cat "{}" >> Xdocs/CurrentState_OmniXelerator.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_OmniXelerator.txt
+'
+
+# O M N I X T R A C K E R/
+find src/omnixtracker/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_OmniXTracker.txt
+    cat "{}" >> Xdocs/CurrentState_OmniXTracker.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_OmniXTracker.txt
+'
+
+# S E C U R I T Y/
+find src/security/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Security.txt
+    cat "{}" >> Xdocs/CurrentState_Security.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Security.txt
+'
+
+# T R A N S F O R M E R S/
+find src/transformers/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Transformers.txt
+    cat "{}" >> Xdocs/CurrentState_Transformers.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Transformers.txt
+'
+
+# U T I L S/
+find src/utils/ -type f | sort | xargs -I {} bash -c '
+    echo -e "\n\n--- {} ---\n" >> Xdocs/CurrentState_Utils.txt
+    cat "{}" >> Xdocs/CurrentState_Utils.txt
+    echo -e "\n\n" >> Xdocs/CurrentState_Utils.txt
+'
